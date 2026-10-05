@@ -1,0 +1,92 @@
+name: NDW-data bijwerken
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ndw-data
+  cancel-in-progress: false
+
+jobs:
+  bijwerken:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Vorige toestand ophalen (historie, meetlocaties)
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: ndw-state-${{ github.run_id }}
+          restore-keys: ndw-state-
+
+      - name: Verkeersborden ophalen (wekelijks vernieuwd)
+        uses: actions/cache/restore@v4
+        with:
+          path: state/signs
+          key: ndw-signs-${{ github.run_id }}
+          restore-keys: ndw-signs-
+
+      - name: NDW-feeds ophalen en verwerken
+        id: fetch
+        env:
+          RADIUS_KM: ${{ vars.RADIUS_KM || '12' }}
+          HISTORY_DAYS: ${{ vars.HISTORY_DAYS || '14' }}
+        run: |
+          stamp() { python -c "import json;print(int(json.load(open('state/signs/meta.json'))['time']))" 2>/dev/null || echo none; }
+          before=$(stamp)
+          mkdir -p site
+          cp -r web/. site/
+          python fetch.py --state state --out site
+          after=$(stamp)
+          echo "signs_new=$([ "$before" != "$after" ] && [ "$after" != none ] && echo "$after")" >> "$GITHUB_OUTPUT"
+
+      - name: Toestand bewaren
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            state
+            !state/signs
+          key: ndw-state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Vernieuwde verkeersborden bewaren
+        if: steps.fetch.outputs.signs_new != ''
+        uses: actions/cache/save@v4
+        with:
+          path: state/signs
+          key: ndw-signs-${{ steps.fetch.outputs.signs_new }}
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+      - name: Repository actief houden
+        if: github.event_name == 'schedule'
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt $(( 45 * 86400 )) ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898333+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "Planning actief houden"
+            git push
+          fi
