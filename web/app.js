@@ -1335,9 +1335,14 @@ function drawChart(c){
   }
   const gap = (+c.agg||15)*60*2.5;
   const paths = r.series.map(s=>{
-    let d = "", prev = null;
-    for (const [t,v] of s.pts){ d += `${prev==null || t-prev>gap ? "M" : "L"}${x(t).toFixed(1)},${y(v).toFixed(1)}`; prev = t; }
-    return `<path d="${d}" stroke="${s.color}" stroke-width="2" ${s.dash?`stroke-dasharray="${s.dash===true?"6 4":s.dash}"`:""}/>`;
+    let d = "", prev = null, dots = "";
+    s.pts.forEach(([t,v], i)=>{
+      const start = prev==null || t-prev>gap, next = s.pts[i+1], alone = start && (!next || next[0]-t>gap);
+      d += `${start ? "M" : "L"}${x(t).toFixed(1)},${y(v).toFixed(1)}`;
+      if (alone) dots += `<circle cx="${x(t).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.5" fill="${s.color}" stroke="none"/>`;   // losse meting zichtbaar maken
+      prev = t;
+    });
+    return `<path d="${d}" stroke="${s.color}" stroke-width="2" ${s.dash?`stroke-dasharray="${s.dash===true?"6 4":s.dash}"`:""}/>${dots}`;
   }).join("");
   let marker = "";
   if (!prof && TIME!=null && TIME>=x0 && TIME<=x1) marker = `<line x1="${x(TIME)}" x2="${x(TIME)}" y1="${P.t}" y2="${H-P.b}" stroke="var(--mg-green)" stroke-width="1.5"/><text x="${x(TIME)+4}" y="${P.t+8}" style="fill:var(--mg-green)">${hhmm(new Date(TIME*1000))}</text>`;
