@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 40
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.deploy.outputs.page_url || steps.deploy2.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -71,6 +71,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ARCHIVE_DAYS: ${{ vars.ARCHIVE_DAYS || '365' }}
+          ARCHIVE_OV_DAYS: ${{ vars.ARCHIVE_OV_DAYS || '60' }}
         run: python archive.py --state state --out site
 
       - name: Toestand bewaren
@@ -101,15 +102,15 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
-         - id: deploy
-           uses: actions/deploy-pages@v4
-           continue-on-error: true        # bij een storing bij GitHub: hieronder nog één poging
-         - name: Publiceren mislukt, na 30 seconden opnieuw
-           if: steps.deploy.outcome == 'failure'
-           run: sleep 30
-         - id: deploy2
-           if: steps.deploy.outcome == 'failure'
-           uses: actions/deploy-pages@v4
+      - id: deploy
+        uses: actions/deploy-pages@v4
+        continue-on-error: true        # bij een storing bij GitHub: hieronder nog één poging
+      - name: Publiceren mislukt, na 30 seconden opnieuw
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 30
+      - id: deploy2
+        if: steps.deploy.outcome == 'failure'
+        uses: actions/deploy-pages@v4
 
       - name: Repository actief houden (anders zet GitHub de planning na 60 dagen uit)
         if: github.event_name == 'schedule'

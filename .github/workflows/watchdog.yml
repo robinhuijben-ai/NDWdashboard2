@@ -1,9 +1,42 @@
-         - id: deploy
-           uses: actions/deploy-pages@v4
-           continue-on-error: true        # bij een storing bij GitHub: hieronder nog één poging
-         - name: Publiceren mislukt, na 30 seconden opnieuw
-           if: steps.deploy.outcome == 'failure'
-           run: sleep 30
-         - id: deploy2
-           if: steps.deploy.outcome == 'failure'
-           uses: actions/deploy-pages@v4
+name: Waakhond (vastgelopen runs stoppen)
+
+# Stopt een run van "NDW-data bijwerken" die veel te lang loopt of blijft hangen,
+# zodat de volgende run weer kan starten. Draait in een eigen groep, dus wordt
+# niet zelf door de vastgelopen run tegengehouden.
+on:
+  schedule:
+    - cron: "7,37 * * * *"     # twee keer per uur (GitHub start soms later)
+  workflow_dispatch:           # ook te starten door de wekker op cron-job.org
+
+permissions:
+  actions: write
+
+concurrency:
+  group: waakhond
+  cancel-in-progress: true
+
+jobs:
+  controleren:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Runs die langer dan 45 minuten bezig zijn of wachten stoppen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          now=$(date +%s)
+          for status in in_progress queued; do
+            gh run list -R "$REPO" --workflow update.yml --status "$status" --limit 20 \
+              --json databaseId,createdAt,startedAt \
+              --jq '.[] | "\(.databaseId) \(.startedAt // .createdAt)"' |
+            while read -r id since; do
+              age=$(( (now - $(date -d "$since" +%s)) / 60 ))
+              if [ "$age" -gt 45 ]; then
+                echo "Run $id staat al $age minuten op '$status' -> stoppen"
+                gh run cancel "$id" -R "$REPO" || true
+              else
+                echo "Run $id: $age minuten op '$status', in orde"
+              fi
+            done
+          done
