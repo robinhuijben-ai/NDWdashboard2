@@ -1,0 +1,9 @@
+         - id: deploy
+           uses: actions/deploy-pages@v4
+           continue-on-error: true        # bij een storing bij GitHub: hieronder nog één poging
+         - name: Publiceren mislukt, na 30 seconden opnieuw
+           if: steps.deploy.outcome == 'failure'
+           run: sleep 30
+         - id: deploy2
+           if: steps.deploy.outcome == 'failure'
+           uses: actions/deploy-pages@v4
