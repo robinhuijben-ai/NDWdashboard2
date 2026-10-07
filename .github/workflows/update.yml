@@ -2,13 +2,13 @@ name: NDW-data bijwerken
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
-  workflow_dispatch:
+    - cron: "*/5 * * * *"     # elke 5 minuten (GitHub start soms wat later)
+  workflow_dispatch:           # handmatig starten via het tabblad Actions
   push:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: write              # alleen voor de 'actief houden'-commit
   pages: write
   id-token: write
 
@@ -19,7 +19,7 @@ concurrency:
 jobs:
   bijwerken:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -49,6 +49,9 @@ jobs:
         env:
           RADIUS_KM: ${{ vars.RADIUS_KM || '12' }}
           HISTORY_DAYS: ${{ vars.HISTORY_DAYS || '14' }}
+          LOOP_RADIUS_KM: ${{ vars.LOOP_RADIUS_KM || '8' }}
+          OV_RADIUS_KM: ${{ vars.OV_RADIUS_KM || '8' }}
+          OV_HISTORY_DAYS: ${{ vars.OV_HISTORY_DAYS || '3' }}
         run: |
           stamp() { python -c "import json;print(int(json.load(open('state/signs/meta.json'))['time']))" 2>/dev/null || echo none; }
           before=$(stamp)
@@ -80,7 +83,7 @@ jobs:
       - id: deploy
         uses: actions/deploy-pages@v4
 
-      - name: Repository actief houden
+      - name: Repository actief houden (anders zet GitHub de planning na 60 dagen uit)
         if: github.event_name == 'schedule'
         run: |
           last=$(git log -1 --format=%ct)
