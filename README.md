@@ -45,7 +45,8 @@ Daarna loopt alles vanzelf.
   opruimt. Het dashboard haalt oude dagen daar vanzelf vandaan; in de tijdbalk en
   de grafieken kun je dus verder terug dan `HISTORY_DAYS`. Bewaartermijn: Variable
   `ARCHIVE_DAYS` (standaard `365`, `0` = onbeperkt). Reken bij een straal van
-  35 km op ruwweg 1,5–2 GB per jaar. De branch bestaat steeds uit één commit,
+  35 km op ruwweg 1,5–2 GB per jaar. OV-voertuigposities gaan ook mee, met een eigen
+  bewaartermijn: Variable `ARCHIVE_OV_DAYS` (standaard `60`). De branch bestaat steeds uit één commit,
   zodat oude versies geen extra ruimte innemen. Niet handmatig in die branch werken.
 - **Projecten** worden in je eigen browser bewaard. Via het menu ⋮ kun je een
   project **delen via een link** (de ontvanger krijgt een eigen kopie), of

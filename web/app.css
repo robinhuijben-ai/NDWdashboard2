@@ -228,7 +228,7 @@ table.src td:last-child{white-space:nowrap;color:var(--muted)}
 .pop .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
 .pop .acts button{font-size:12px}
 .pop .acts select{font-size:12px;max-width:150px;background:var(--soft);border:1px solid var(--line);border-radius:4px;padding:3px}
-.pop img.drip{display:block;max-width:400px;width:100%;image-rendering:pixelated;background:#000;border-radius:4px;margin:6px 0}
+.pop img.drip{display:block;max-width:240px;width:100%;max-height:140px;object-fit:contain;image-rendering:pixelated;background:#000;border-radius:4px;margin:6px 0}
 .pop .lines{background:#0b0d10;color:#ffd84d;font-family:"JetBrains Mono",monospace;font-size:12px;padding:6px 8px;border-radius:4px;margin:6px 0}
 .pop .lines .rt{background:#c62828;color:#fff;border-radius:3px;padding:0 3px;margin-right:3px;font-size:11px}
 .pop .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:12px}
@@ -353,3 +353,10 @@ table.src td:last-child{white-space:nowrap;color:var(--muted)}
 .ccard .legend i.dot{background:repeating-linear-gradient(90deg,var(--c) 0 2px,transparent 2px 5px)!important}
 .sub .fld.sm{margin:6px 0 4px;font-weight:600}
 .sub .fld.sm select{font:inherit;font-weight:400;font-size:13px;padding:3px 4px;border:1px solid var(--line);border-radius:4px;background:var(--panel);color:var(--ink)}
+
+/* zijbalk inklappen */
+.side-toggle{position:absolute;left:0;top:50%;transform:translateY(-50%);z-index:650;width:22px;height:56px;padding:0;border:1px solid var(--line);border-left:0;border-radius:0 var(--r) var(--r) 0;background:var(--panel);color:var(--mg-green);font-size:20px;font-weight:700;line-height:1;box-shadow:var(--shadow);cursor:pointer}
+.side-toggle:hover{background:var(--mg-mint)}
+.view[data-view="kaart"].side-off{grid-template-columns:1fr}
+.view[data-view="kaart"].side-off aside{display:none}
+@media (max-width:980px){.side-toggle{display:none}.view[data-view="kaart"].side-off aside{display:flex}}

@@ -558,6 +558,15 @@ $("#msi-box").hidden = !ui.layers.msi; $("#drip-box").hidden = !ui.layers.drip; 
 $("#msi-active").checked = ui.msiActive; $("#msi-active").onchange = e=>{ ui.msiActive = e.target.checked; saveUI(); drawMsi(); };
 $("#drip-size").value = ui.dripSize || "m"; $("#drip-size").onchange = e=>{ ui.dripSize = e.target.value; saveUI(); drawDrips(); };
 $("#drip-active").checked = ui.dripActive; $("#drip-active").onchange = e=>{ ui.dripActive = e.target.checked; saveUI(); drawDrips(); };
+function applySide(){
+  $('.view[data-view="kaart"]').classList.toggle("side-off", !!ui.sideCollapsed);
+  const b = $("#side-toggle"); b.setAttribute("aria-expanded", !ui.sideCollapsed);
+  b.title = ui.sideCollapsed ? "Zijbalk tonen" : "Zijbalk inklappen";
+  b.innerHTML = ui.sideCollapsed ? "›" : "‹";
+  setTimeout(()=>map.invalidateSize(), 0);
+}
+$("#side-toggle").onclick = ()=>{ ui.sideCollapsed = !ui.sideCollapsed; saveUI(); applySide(); };
+applySide();
 $("#layers-toggle").onclick = ()=>{ ui.layersOpen = !ui.layersOpen; saveUI(); applyLayersOpen(); };
 function applyLayersOpen(){ $("#layers-body").hidden = !ui.layersOpen; $("#layers-toggle").setAttribute("aria-expanded", ui.layersOpen); }
 applyLayersOpen();
@@ -730,7 +739,7 @@ async function drawDrips(){
         <div class="m">${d.active?"<b style='color:var(--mg-green)'>Toont een boodschap</b>":"Toont niets"}${off?" · ⚠ buiten werking":""}</div>
         ${imgs}${d.text?.some(t=>t.trim())?`<div class="lines">${dripLines(d.text)}</div>`:""}
         <div class="m" style="font-size:11px">${esc(d.id)}</div>${pinBtn}</div>`;
-    },{maxWidth:440, minWidth:240}).addTo(dripGroup);
+    },{maxWidth:300}).addTo(dripGroup);
   }
   const act = list.filter(d=>d.active).length;
   $("#cnt-drip").textContent = list.length ? `${act} / ${list.length}` : "";
@@ -1013,7 +1022,7 @@ async function drawOvVeh(){
   if (!ui.layers.ovveh){ ovVehGroup.clearLayers(); return; }
   let rows = OVVEH;
   if (TIME!=null){
-    try{ const f = await getJSON(`data/ovh/${dayUTC(TIME)}.json`, isToday(dayUTC(TIME))?undefined:"final"); const st = f.steps.filter(s=>s[0]<=TIME).pop(); rows = st && TIME-st[0] <= 900 ? st[1].map(v=>[v[0],v[1],v[2],v[3]]) : []; }
+    try{ const f = await getDayJSON(`ovh/${dayUTC(TIME)}.json`, dayUTC(TIME), "ovh", isToday(dayUTC(TIME))?undefined:"final"); const st = f.steps.filter(s=>s[0]<=TIME).pop(); rows = st && TIME-st[0] <= 900 ? st[1].map(v=>[v[0],v[1],v[2],v[3]]) : []; }
     catch(e){ rows = []; }
   }
   if (my!==ovReq) return;
@@ -1519,7 +1528,7 @@ function showStatus(err){
   $("#src-tt").textContent = f(STATE.lastFetch); $("#src-msi").textContent = f(STATE.msiTime); $("#src-drip").textContent = f(STATE.dripTime);
   $("#src-signs").textContent = STATE.signsTime ? new Date(STATE.signsTime*1000).toLocaleDateString("nl-NL") : "–";
   $("#info-days").textContent = STATE.historyDays || 14;
-  $("#info-arch").textContent = ARCH ? `Afgeronde dagen worden daarnaast bewaard in het archief (branch “data” van de repository${ARCH.keepDays>0?`, ${ARCH.keepDays} dagen`:", onbeperkt"}); daar staan nu ${ARCH.hist.length} dagen reistijden en ${ARCH.lhist.length} dagen lusdata.` : "";
+  $("#info-arch").textContent = ARCH ? `Afgeronde dagen worden daarnaast bewaard in het archief (branch “data” van de repository${ARCH.keepDays>0?`, ${ARCH.keepDays} dagen`:", onbeperkt"}); daar staan nu ${ARCH.hist.length} dagen reistijden, ${ARCH.lhist.length} dagen lusdata, ${(ARCH.drip||[]).length} dagen DRIP-beelden en ${(ARCH.ovh||[]).length} dagen OV-posities${ARCH.keepOvDays>0?` (OV: ${ARCH.keepOvDays} dagen)`:""}.` : "";
   $("#src-loops").textContent = f(STATE.loopsTime); $("#src-sit").textContent = f(STATE.sitTime); $("#src-plan").textContent = f(STATE.planningTime); $("#src-ov").textContent = f(STATE.ovTime);
 }
 

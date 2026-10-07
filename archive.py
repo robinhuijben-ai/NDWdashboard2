@@ -10,7 +10,8 @@ Wordt per run aangeroepen; doet alleen iets als er een dag is afgerond of als
 er dagen buiten de bewaartermijn vallen. Alleen standaardbibliotheek.
 
 Omgeving: GITHUB_TOKEN, GITHUB_REPOSITORY (zet GitHub Actions zelf),
-ARCHIVE_DAYS (bewaartermijn in dagen, standaard 365; 0 = onbeperkt).
+ARCHIVE_DAYS (bewaartermijn in dagen, standaard 365; 0 = onbeperkt),
+ARCHIVE_OV_DAYS (bewaartermijn OV-voertuigposities, standaard 60; 0 = onbeperkt).
 """
 import argparse
 import base64
@@ -24,7 +25,7 @@ from datetime import datetime, timezone
 
 API = os.environ.get("GITHUB_API_URL") or "https://api.github.com"
 BRANCH = "data"
-KINDS = ("hist", "lhist", "msi", "drip", "sit")
+KINDS = ("hist", "lhist", "msi", "drip", "sit", "ovh")
 CHUNK = 6_000_000          # tekens inhoud per tree-aanvraag
 MAX_IMG = 150              # beelden (blobs) per run, i.v.m. limieten van GitHub
 
@@ -104,17 +105,21 @@ def main():
     a = p.parse_args()
     pub = os.path.join(a.state, "pub")
     repo, token = os.environ.get("GITHUB_REPOSITORY"), os.environ.get("GITHUB_TOKEN")
-    try:
-        keep = int(float(os.environ.get("ARCHIVE_DAYS") or 365))
-    except ValueError:
-        keep = 365
+    def days_env(name, default):
+        import re as _re
+        m = _re.findall(r"\d+", os.environ.get(name) or "")
+        return int(m[-1]) if m else default
+    keep = days_env("ARCHIVE_DAYS", 365)
+    keep_ov = days_env("ARCHIVE_OV_DAYS", 60)
     if not repo or not token:
         log("geen GITHUB_REPOSITORY/GITHUB_TOKEN; overgeslagen")
         return 0
     gh = GH(repo, token)
     now = time.time()
     done_before = day_of(now - 3600)          # dagen vóór deze zijn afgerond
-    oldest = day_of(now - keep * 86400) if keep > 0 else "0000-00-00"
+    oldest_all = day_of(now - keep * 86400) if keep > 0 else "0000-00-00"
+    oldest_ov = day_of(now - keep_ov * 86400) if keep_ov > 0 else "0000-00-00"
+    oldest_of = lambda kind: max(oldest_all, oldest_ov) if kind == "ovh" else oldest_all
 
     # huidige stand van het archief
     ref = gh.req("GET", f"git/ref/heads/{BRANCH}", ok404=True)
@@ -137,7 +142,7 @@ def main():
     have_img = set(index["img"])
     for kind in KINDS:
         for day in local_days(pub, kind):
-            if day >= done_before or day < oldest or day in index["files"][kind]:
+            if day >= done_before or day < oldest_of(kind) or day in index["files"][kind]:
                 continue
             files = day_files(pub, kind, day)
             if not files:
@@ -156,7 +161,7 @@ def main():
     # dagen buiten de bewaartermijn
     removed = []
     for kind in KINDS:
-        for day in [d for d in index["files"][kind] if d < oldest]:
+        for day in [d for d in index["files"][kind] if d < oldest_of(kind)]:
             removed += index["files"][kind].pop(day)
 
     if new_files or removed or img_new:
@@ -205,6 +210,7 @@ def main():
     out = {
         "base": f"https://raw.githubusercontent.com/{owner_repo}/{BRANCH}/",
         "keepDays": keep,
+        "keepOvDays": keep_ov,
         **{k: sorted(index["files"][k]) for k in KINDS},
     }
     for path in (os.path.join(a.out, "data", "archive.json"), os.path.join(a.state, "archive.json")):
