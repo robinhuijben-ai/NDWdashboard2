@@ -11,7 +11,7 @@ website (GitHub Pages).
    (bijv. `brienenoord-verkeer`), zet hem op **Public** en klik *Create repository*.
    *(Private kan ook, maar GitHub Pages werkt daar alleen met een betaald abonnement.)*
 2. **Bestanden uploaden.** Klik op de lege repository op *uploading an existing file*.
-   Sleep **de inhoud** van de uitgepakte map erin (dus `fetch.py`, `ndw.py`,
+   Sleep **de inhoud** van de uitgepakte map erin (dus `fetch.py`, `ndw.py`, `ov.py`,
    `README.md`, de map `web` en de map `.github`) en klik *Commit changes*.
    > Op een Mac is de map `.github` verborgen. Druk in Finder op
    > **Cmd + Shift + .** om hem te tonen, zodat je hem mee kunt slepen.
@@ -19,8 +19,9 @@ website (GitHub Pages).
    > `.github/workflows/update.yml` en plak de inhoud van dat bestand erin.
 3. **Pages aanzetten.** *Settings → Pages →* bij *Source* kies **GitHub Actions**.
 4. **Eerste run starten.** Tabblad *Actions →* "NDW-data bijwerken" → *Run workflow*.
-   De eerste keer duurt het een paar minuten (de meetlocatietabel en het
-   landelijke verkeersbordenbestand worden dan opgehaald).
+   De eerste keer duurt het 10–20 minuten: dan worden de meetlocatietabel, de
+   wegvakgeometrie, het landelijke verkeersbordenbestand en de OV-dienstregeling
+   opgehaald. Daarna duurt een run meestal 1–3 minuten.
 5. **Openen.** Het adres staat bij *Settings → Pages* en in de run:
    `https://<jouw-gebruikersnaam>.github.io/<repository>/`. Zet het in je
    bladwijzers; het werkt ook op telefoon en tablet, en je kunt het delen met collega's.
@@ -34,8 +35,10 @@ Daarna loopt alles vanzelf.
   de data is; is die ouder dan 30 minuten, dan kleurt de stip oranje.
 - **Historie.** Reistijden worden 14 dagen bewaard (genoeg voor een nulmeting).
   Aanpassen: *Settings → Secrets and variables → Actions → Variables* →
-  `HISTORY_DAYS` (bijv. `30`). De straal rond de brug stel je in met `RADIUS_KM`
-  (standaard `12`).
+  `HISTORY_DAYS` (bijv. `30`). Andere instellingen op dezelfde plek:
+  `RADIUS_KM` (straal voor reistijden, standaard `12`), `LOOP_RADIUS_KM`
+  (lusdetectie, `8`), `OV_RADIUS_KM` (OV-laag, `8`) en `OV_HISTORY_DAYS`
+  (bewaartermijn OV-voertuigposities, `3`).
 - **Projecten** worden in je eigen browser bewaard. Via het menu ⋮ kun je een
   project **delen via een link** (de ontvanger krijgt een eigen kopie), of
   exporteren/importeren als bestand.
@@ -46,12 +49,28 @@ Daarna loopt alles vanzelf.
 
 ## Wat zit erin
 
-| Laag | NDW-bestand | Ververst |
+| Laag | Bron | Ververst |
 |---|---|---|
-| Reistijden | `traveltime.xml.gz` + `measurement_current.xml.gz` (ligging, dagelijks) | elke run |
-| Matrixborden (MSI) | `Matrixsignaalinformatie.xml.gz` + `ndw_msi_shapefiles_latest.zip` | elke run |
-| DRIP's | `dynamische_route_informatie_paneel.xml.gz` (beeld + tekst) | elke run |
-| Verkeersborden | `verkeersborden_actueel_beeld.csv.gz` | wekelijks |
+| Reistijden (500 m-vakken RWS, gemeente Rotterdam, PZH) | NDW `traveltime.xml.gz`; ligging uit `measurement_current.xml.gz` en `ndw_avg_meetlocaties_shapefile.zip` | elke run (ligging dagelijks) |
+| Lusdetectie (snelheid + intensiteit per rijstrook) | NDW `trafficspeed.xml.gz` + `measurement_current.xml.gz` | elke run |
+| Actuele situaties (files, afsluitingen, maatregelen, ongevallen, brugopeningen) | NDW `actueel_beeld.xml.gz` (DATEX II v3) | elke run |
+| Planning werkzaamheden & evenementen | NDW `planningsfeed_wegwerkzaamheden_en_evenementen.xml.gz` + `planningsfeed_brugopeningen.xml.gz` | elk uur |
+| Matrixborden (MSI) | NDW `Matrixsignaalinformatie.xml.gz` + `ndw_msi_shapefiles_latest.zip` | elke run |
+| DRIP's | NDW `dynamische_route_informatie_paneel.xml.gz` (beeld + tekst) | elke run |
+| Verkeersborden | NDW `verkeersborden_actueel_beeld.csv.gz` | wekelijks |
+| OV-lijnen en haltes | OpenOV `gtfs-nl.zip` | dagelijks |
+| OV-voertuigen en storingen | OpenOV GTFS-realtime `vehiclePositions.pb` + `alerts.pb` | elke run |
 
 Bestanden: `fetch.py` (bouwt de data), `ndw.py` (leest de NDW-formaten),
-`web/` (het dashboard), `.github/workflows/update.yml` (de planning).
+`ov.py` (leest GTFS en GTFS-realtime), `web/` (het dashboard),
+`.github/workflows/update.yml` (de planning).
+
+## Bronvermelding en gebruik
+
+- Verkeersdata: **NDW** (Nationaal Dataportaal Wegverkeer), open data.
+- OV-data: **OpenOV / OVapi** (gtfs.ovapi.nl), afgeleid van NDOV. Het script
+  haalt de realtime-bestanden hooguit eens per run (±5 minuten) op en de
+  dienstregeling eens per dag, met een herkenbare User-Agent, conform het
+  verzoek van OpenOV om de servers niet zwaarder te belasten dan nodig.
+  De voertuigposities zijn dus een momentopname, geen live-volgsysteem.
+- Kaart: **PDOK / Kadaster** (BRT-achtergrondkaart en luchtfoto).

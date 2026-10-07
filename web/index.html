@@ -6,127 +6,281 @@
 <title>Verkeer Brienenoord</title>
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<nav class="rail" aria-label="Hoofdmenu">
-  <div class="logo" aria-hidden="true"><i></i><i></i><i></i></div>
-  <button class="rail-btn active" data-view="project" title="Projecten">
-    <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span>Project</span></button>
-  <button class="rail-btn" data-view="chart" title="Grafiek">
-    <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 6-6"/></svg><span>Grafiek</span></button>
-  <button class="rail-btn" data-view="info" title="Informatie">
-    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg><span>Info</span></button>
-</nav>
-
-<aside id="side">
-  <!-- PROJECT -->
-  <section class="view" data-view="project">
-    <div class="proj-bar">
-      <select id="proj-select" aria-label="Project"></select>
-      <button class="icon" id="proj-new" title="Nieuw project"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
-      <button class="icon" id="proj-menu" title="Projectopties"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/></svg></button>
-      <div class="menu" id="proj-menu-list" hidden>
-        <button data-act="rename">Naam wijzigen</button>
-        <button data-act="dup">Dupliceren</button>
-        <button data-act="share">Deel via link</button>
-        <button data-act="export">Exporteren (.json)</button>
-        <button data-act="import">Importeren…</button>
-        <button data-act="delete" class="danger">Project verwijderen</button>
-      </div>
-      <input type="file" id="proj-import" accept=".json,application/json" hidden>
+<header class="appbar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+    <div>
+      <div class="brand-t">Verkeer Van Brienenoordbrug</div>
+      <div class="brand-s">Reistijden · matrixborden · DRIP's — NDW open data</div>
     </div>
-    <textarea id="proj-note" rows="2" placeholder="Notitie, bv. werkzaamheden 25-10 t/m 03-11, afsluiting A16 richting Breda…"></textarea>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" class="tab active" data-view="kaart">Kaart</button>
+    <button role="tab" class="tab" data-view="grafieken">Grafieken</button>
+    <button role="tab" class="tab" data-view="meldingen">Meldingen <span class="tabcount num" id="tab-meld-n"></span></button>
+    <button role="tab" class="tab" data-view="info">Info</button>
+  </nav>
+  <div class="status">
+    <span id="st-dot" class="dot busy"></span>
+    <span id="st-text">Verbinden…</span>
+    <span id="st-age" class="num"></span>
+  </div>
+</header>
 
-    <div class="sec-h">Trajecten <span class="spacer"></span>
-      <button id="all-on" class="mini">Alles aan</button><button id="all-off" class="mini">Alles uit</button>
+<!-- ================= KAART ================= -->
+<section class="view" data-view="kaart">
+  <aside id="side">
+    <div class="proj">
+      <label class="eyebrow" for="proj-select">Project</label>
+      <div class="proj-row">
+        <select id="proj-select"></select>
+        <button class="icon" id="proj-new" title="Nieuw project"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button class="icon" id="proj-menu" title="Projectopties"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/></svg></button>
+        <div class="menu" id="proj-menu-list" hidden>
+          <button data-act="rename">Naam wijzigen</button>
+          <button data-act="dup">Dupliceren</button>
+          <button data-act="share">Deel via link</button>
+          <button data-act="export">Exporteren (.json)</button>
+          <button data-act="import">Importeren…</button>
+          <button data-act="delete" class="danger">Project verwijderen</button>
+        </div>
+        <input type="file" id="proj-import" accept=".json,application/json" hidden>
+      </div>
+      <textarea id="proj-note" rows="2" placeholder="Notitie, bv. werkzaamheden 25-10 t/m 03-11, afsluiting A16 richting Breda…"></textarea>
+    </div>
+
+    <div class="sec-h"><h2>Trajecten</h2><span class="spacer"></span>
+      <button id="all-on" class="ghost sm">Alles aan</button><button id="all-off" class="ghost sm">Alles uit</button>
     </div>
     <div id="selected"></div>
-    <button id="new-group" class="wide">
-      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-      Nieuw traject samenstellen uit segmenten</button>
+    <button id="new-group" class="dashed">+ Traject samenstellen uit segmenten</button>
 
-    <div class="sec-h">Beschikbare segmenten <span class="spacer"></span><span id="count" class="num"></span></div>
+    <div class="sec-h"><h2>Segmenten</h2><span class="spacer"></span><span id="count" class="num muted"></span></div>
     <div class="search">
-      <input id="q" type="search" placeholder="Zoek, bv. A16 Re, Brienenoord, Stadionweg…">
-      <label class="chk"><input id="inview" type="checkbox" checked> in beeld</label>
+      <input id="q" type="search" placeholder="Zoek, bv. A16 Re, Stadionweg, N471…">
+      <label class="chk sm"><input id="inview" type="checkbox" checked> in beeld</label>
     </div>
     <div id="list"></div>
-  </section>
+  </aside>
 
-  <!-- GRAFIEK -->
-  <section class="view" data-view="chart" hidden>
-    <div class="sec-h">Reistijd per traject</div>
-    <p class="hint">Verloop van de trajecten in het actieve project. Beweeg over de grafiek voor waarden.</p>
-    <div class="seg" role="radiogroup" aria-label="Weergave">
-      <label><input type="radio" name="cmode" value="abs" checked> Reistijd (min)</label>
-      <label><input type="radio" name="cmode" value="rel"> Vertraging t.o.v. referentie</label>
-    </div>
-    <div id="chart"></div>
-    <div id="chart-legend"></div>
-  </section>
+  <div class="mapwrap">
+    <div id="map"></div>
 
-  <!-- INFO -->
-  <section class="view" data-view="info" hidden>
-    <div class="sec-h">Over dit dashboard</div>
-    <div class="prose">
-      <p>Alle gegevens komen uit de open data van NDW. Een GitHub-workflow haalt ze ongeveer elke 5 minuten op (GitHub kan soms wat later starten) en publiceert ze bij dit dashboard.</p>
-      <table class="src">
-        <tr><th>Reistijden</th><td>traveltime.xml.gz + measurement_current.xml.gz</td><td id="src-tt">–</td></tr>
-        <tr><th>Matrixborden</th><td>Matrixsignaalinformatie.xml.gz + ndw_msi_shapefiles_latest.zip</td><td id="src-msi">–</td></tr>
-        <tr><th>DRIP's</th><td>dynamische_route_informatie_paneel.xml.gz</td><td id="src-drip">–</td></tr>
-        <tr><th>Verkeersborden</th><td>verkeersborden_actueel_beeld.csv.gz (wekelijks)</td><td id="src-signs">–</td></tr>
-      </table>
-      <p><b>Referentie.</b> Vertraging is de actuele reistijd min de NDW-referentiereistijd. Ontbreekt die, dan wordt de snelste meting uit de bewaarde historie gebruikt.</p>
-      <p><b>Doorstroming</b> (kleur op de kaart): <span class="lg ok"></span> &lt; 1,25× referentie · <span class="lg warn"></span> tot 1,75× · <span class="lg bad"></span> daarboven · <span class="lg na"></span> geen data.</p>
-      <p><b>Projecten</b> worden in deze browser bewaard. Via het menu (⋮) kun je een project <b>delen via een link</b>: wie hem opent krijgt een eigen kopie. Met Exporteren maak je een back-up.</p>
-    </div>
-  </section>
-</aside>
+    <div id="layers" class="panel">
+      <button class="panel-h" id="layers-toggle" aria-expanded="true">
+        <svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>
+        Kaartlagen<span class="spacer"></span><span class="chev">▾</span></button>
+      <div class="panel-b" id="layers-body">
+        <div class="grp-t">Reistijden</div>
+        <label class="chk"><input type="checkbox" id="ly-mine" checked> Mijn trajecten</label>
+        <div id="seg-groups"></div>
+        <div class="legend-flow">
+          <span><i class="ok"></i>vlot</span><span><i class="warn"></i>druk</span><span><i class="bad"></i>file</span><span><i class="na"></i>geen data</span>
+        </div>
+        <label class="chk"><input type="checkbox" id="ly-loops"> Lusdetectie (snelheid, intensiteit) <span class="cnt num" id="cnt-loops"></span></label>
+        <div class="sub" id="loops-box" hidden><div class="hint">Kleur: snelheid t.o.v. de gebruikelijke vrije snelheid op dat meetpunt. Vanaf zoomniveau 12.</div></div>
 
-<main>
-  <header>
-    <h1>Verkeer Van Brienenoordbrug</h1>
-    <div class="status">
-      <span id="st-dot" class="dot busy"></span><span id="st-text">Verbinden…</span>
-      <span id="st-next" class="num"></span>
-      <button id="btn-refresh" class="mini" title="Laatste gepubliceerde data ophalen">Verversen</button>
-    </div>
-  </header>
-  <div id="map"></div>
+        <div class="grp-t">Situaties</div>
+        <label class="chk"><input type="checkbox" id="ly-sit"> Actuele situaties <span class="cnt num" id="cnt-sit"></span></label>
+        <div class="sub" id="sit-box" hidden><div class="chips" id="sit-cats"></div></div>
+        <label class="chk"><input type="checkbox" id="ly-plan"> Werkzaamheden &amp; evenementen <span class="cnt num" id="cnt-plan"></span></label>
+        <div class="sub" id="plan-box" hidden>
+          <select id="plan-when" class="mini-select">
+            <option value="at">actief op het getoonde moment</option>
+            <option value="7">komende 7 dagen</option>
+            <option value="30">komende 30 dagen</option>
+            <option value="all">alles in de planning</option>
+          </select>
+        </div>
 
-  <div id="layers" class="panel">
-    <button class="panel-h" id="layers-toggle" aria-expanded="true">
-      <svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg>
-      Kaartlagen<span class="spacer"></span><span class="chev">▾</span></button>
-    <div class="panel-b" id="layers-body">
-      <label class="chk"><input type="checkbox" id="ly-mine" checked> Mijn trajecten</label>
-      <label class="chk"><input type="checkbox" id="ly-flow" checked> Reistijd – doorstroming</label>
-      <div class="sub" id="prefix-box"></div>
-      <label class="chk"><input type="checkbox" id="ly-drip"> DRIP's <span class="cnt num" id="cnt-drip"></span></label>
-      <label class="chk"><input type="checkbox" id="ly-msi"> Matrixborden (MSI) <span class="cnt num" id="cnt-msi"></span></label>
-      <label class="chk"><input type="checkbox" id="ly-signs"> Verkeersborden <span class="cnt num" id="cnt-signs"></span></label>
-      <div class="sub" id="signs-box" hidden>
-        <div class="chips" id="sign-cats"></div>
-        <div class="hint" id="signs-hint"></div>
+        <div class="grp-t">Openbaar vervoer</div>
+        <label class="chk"><input type="checkbox" id="ly-ovnet"> Lijnen en haltes <span class="cnt num" id="cnt-ovnet"></span></label>
+        <div class="sub" id="ovnet-box" hidden><div class="chips" id="ov-kinds"></div></div>
+        <label class="chk"><input type="checkbox" id="ly-ovveh"> Voertuigen met vertraging <span class="cnt num" id="cnt-ovveh"></span></label>
+        <div class="sub" id="ovveh-box" hidden>
+          <div class="legend-flow"><span><i class="ok"></i>op tijd</span><span><i class="warn"></i>1–3 min</span><span><i class="bad"></i>&gt; 3 min</span><span><i style="background:#2a78d6"></i>te vroeg</span></div>
+          <div class="hint">Momentopname per run (±5 min), bron OpenOV.</div>
+        </div>
+
+        <div class="grp-t">Wegkant</div>
+        <label class="chk"><input type="checkbox" id="ly-msi"> Matrixborden (MSI) <span class="cnt num" id="cnt-msi"></span></label>
+        <div class="sub" id="msi-box" hidden>
+          <label class="chk sm"><input type="checkbox" id="msi-active" checked> alleen portalen met beeldstand</label>
+          <div class="hint">Portalen staan in de rijrichting, zoals de weggebruiker ze ziet; het pijltje wijst de rijrichting op.</div>
+        </div>
+        <label class="chk"><input type="checkbox" id="ly-drip"> DRIP's <span class="cnt num" id="cnt-drip"></span></label>
+        <div class="sub" id="drip-box" hidden>
+          <label class="chk sm"><input type="checkbox" id="drip-active"> alleen DRIP's met een boodschap</label>
+          <div class="hint"><span class="drip-key on"></span> toont iets · <span class="drip-key"></span> leeg — vanaf dichtbij zie je het beeld zelf</div>
+        </div>
+        <label class="chk"><input type="checkbox" id="ly-signs"> Verkeersborden <span class="cnt num" id="cnt-signs"></span></label>
+        <div class="sub" id="signs-box" hidden>
+          <div class="chips" id="sign-cats"></div>
+          <div class="hint" id="signs-hint"></div>
+        </div>
+        <div class="grp-t">Achtergrond</div>
+        <div class="seg" role="radiogroup" aria-label="Achtergrond">
+          <label><input type="radio" name="base" value="grijs" checked> Grijs</label>
+          <label><input type="radio" name="base" value="kleur"> Kleur</label>
+          <label><input type="radio" name="base" value="foto"> Luchtfoto</label>
+          <label><input type="radio" name="base" value="donker"> Donker</label>
+        </div>
       </div>
-      <div class="divider"></div>
-      <div class="seg small" role="radiogroup" aria-label="Achtergrond">
-        <label><input type="radio" name="base" value="light" checked> Licht</label>
-        <label><input type="radio" name="base" value="photo"> Luchtfoto</label>
-        <label><input type="radio" name="base" value="dark"> Donker</label>
+    </div>
+
+    <div id="timechip" hidden>
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      <span>Je kijkt naar <b id="timechip-t"></b></span>
+      <button id="timechip-live">Terug naar live</button>
+    </div>
+
+    <div id="editbar" hidden>
+      <span class="sw" id="editbar-sw"></span>
+      <span>Klik segmenten op de kaart om ze aan <b id="editbar-name"></b> toe te voegen of te verwijderen</span>
+      <button id="editbar-done" class="primary sm">Klaar</button>
+    </div>
+
+    <div id="timebar">
+      <button id="tb-live" class="live on" title="Live: altijd de nieuwste data">● Live</button>
+      <div class="tb-btns">
+        <button class="icon" id="tb-back60" title="1 uur terug">−1u</button>
+        <button class="icon" id="tb-back" title="5 minuten terug">◀</button>
+        <button class="icon" id="tb-play" title="Afspelen">▶</button>
+        <button class="icon" id="tb-fwd" title="5 minuten vooruit">▶|</button>
       </div>
+      <div class="tb-track">
+        <input type="range" id="tb-range" min="0" max="1" step="300" value="1" aria-label="Tijdstip">
+        <div id="tb-days"></div>
+      </div>
+      <div class="tb-label"><b id="tb-time" class="num">—</b><span id="tb-date"></span></div>
     </div>
   </div>
+</section>
 
-  <div id="editbar" hidden>
-    <span class="sw" id="editbar-sw"></span>
-    <span>Klik segmenten op de kaart om ze toe te voegen aan <b id="editbar-name"></b> of te verwijderen</span>
-    <button id="editbar-done">Klaar</button>
+<!-- ================= GRAFIEKEN ================= -->
+<section class="view" data-view="grafieken" hidden>
+  <div class="charts-head">
+    <div>
+      <div class="eyebrow">Project</div>
+      <h1 id="charts-proj"></h1>
+    </div>
+    <span class="spacer"></span>
+    <button id="chart-new" class="primary">› Nieuwe grafiek</button>
   </div>
-  <div id="toast" hidden></div>
-</main>
+  <div id="charts" class="charts-grid"></div>
+</section>
+
+<!-- ================= MELDINGEN ================= -->
+<section class="view" data-view="meldingen" hidden>
+  <div class="meld-wrap">
+    <div class="meld-head">
+      <div><div class="eyebrow">Binnen het gebied rond de brug</div><h1>Meldingen</h1></div>
+      <span class="spacer"></span>
+      <input id="meld-q" type="search" placeholder="Zoek, bv. A16, Drechttunnel, Ridderkerk, lijn 33…">
+    </div>
+    <div class="seg meld-tabs" role="radiogroup" aria-label="Soort meldingen">
+      <label><input type="radio" name="meld" value="actueel" checked> Actueel <span class="num" id="meld-n-act"></span></label>
+      <label><input type="radio" name="meld" value="planning"> Gepland <span class="num" id="meld-n-plan"></span></label>
+      <label><input type="radio" name="meld" value="ov"> OV-storingen <span class="num" id="meld-n-ov"></span></label>
+    </div>
+    <div class="meld-filters" id="meld-filters"></div>
+    <div id="meld-list"></div>
+  </div>
+</section>
+
+<!-- ================= INFO ================= -->
+<section class="view" data-view="info" hidden>
+  <div class="prose">
+    <h1>Over dit dashboard</h1>
+    <p>Alle gegevens komen uit de open data van NDW. Een GitHub-workflow haalt ze ongeveer elke 5 minuten op (GitHub start soms wat later) en publiceert ze bij dit dashboard. Historie wordt <span id="info-days">14</span> dagen bewaard.</p>
+    <table class="src">
+      <tr><th>Reistijden</th><td>traveltime.xml.gz · ligging uit measurement_current.xml.gz · weggeometrie uit ndw_avg_meetlocaties_shapefile.zip</td><td id="src-tt">–</td></tr>
+      <tr><th>Matrixborden</th><td>Matrixsignaalinformatie.xml.gz + ndw_msi_shapefiles_latest.zip</td><td id="src-msi">–</td></tr>
+      <tr><th>DRIP's</th><td>dynamische_route_informatie_paneel.xml.gz</td><td id="src-drip">–</td></tr>
+      <tr><th>Verkeersborden</th><td>verkeersborden_actueel_beeld.csv.gz (wekelijks)</td><td id="src-signs">–</td></tr>
+      <tr><th>Lusdetectie</th><td>trafficspeed.xml.gz + measurement_current.xml.gz</td><td id="src-loops">–</td></tr>
+      <tr><th>Actuele situaties</th><td>actueel_beeld.xml.gz (files, afsluitingen, maatregelen, incidenten, brugopeningen)</td><td id="src-sit">–</td></tr>
+      <tr><th>Planning</th><td>planningsfeed_wegwerkzaamheden_en_evenementen.xml.gz + planningsfeed_brugopeningen.xml.gz (elk uur)</td><td id="src-plan">–</td></tr>
+      <tr><th>Openbaar vervoer</th><td>OpenOV / OVapi: gtfs-nl.zip (dagelijks), vehiclePositions.pb, alerts.pb</td><td id="src-ov">–</td></tr>
+    </table>
+    <h2>Begrippen</h2>
+    <p><b>Referentie</b> is de NDW-referentiereistijd van een segment; ontbreekt die, dan de snelste gemeten reistijd. <b>Vertraging</b> = reistijd − referentie. <b>Reistijdindex</b> = reistijd ÷ referentie (1,0 = vrije doorstroming).</p>
+    <p><b>Doorstroming</b> op de kaart: <span class="lg ok"></span> vlot (&lt; 1,25× referentie) · <span class="lg warn"></span> druk (tot 1,75×) · <span class="lg bad"></span> file (daarboven) · <span class="lg na"></span> geen data.</p>
+    <h2>Lusdetectie</h2>
+    <p>Meetpunten in het wegdek meten per minuut per rijstrook de intensiteit (voertuigen per uur) en de gemiddelde snelheid. Je kunt meetpunten aan een project toevoegen en er grafieken van maken, bijvoorbeeld de intensiteit vóór en tijdens de werkzaamheden.</p>
+    <h2>Tijdbalk</h2>
+    <p>Met de tijdbalk onder de kaart ga je terug in de tijd: reistijden, lusdetectie, matrixborden, DRIP's, actuele situaties en OV-voertuigen tonen dan de stand van dat moment (OV-voertuigen de laatste 3 dagen). Klik in een tijdgrafiek om naar dat moment te springen.</p>
+    <h2>Projecten</h2>
+    <p>Projecten (trajecten, kleuren, notities en grafieken) worden in deze browser bewaard. Deel een project met <b>Deel via link</b> in het projectmenu; de ontvanger krijgt een eigen kopie. Met Exporteren maak je een back-up.</p>
+  </div>
+</section>
+
+<!-- ================= GRAFIEK-EDITOR ================= -->
+<dialog id="chart-dlg">
+  <form method="dialog" id="chart-form">
+    <h2 id="chart-dlg-t">Nieuwe grafiek</h2>
+    <label class="fld">Titel<input name="title" placeholder="bv. A16 richting Breda – spits"></label>
+    <fieldset class="fld"><legend>Trajecten</legend><div id="cf-items" class="cf-items"></div></fieldset>
+    <div class="fld-row">
+      <label class="fld">Weergave
+        <select name="type">
+          <option value="tijd">Tijdlijn</option>
+          <option value="profiel">Gemiddeld dagprofiel</option>
+        </select></label>
+      <label class="fld">Waarde
+        <select name="metric">
+          <option value="reistijd">Reistijd (min)</option>
+          <option value="vertraging">Vertraging (min)</option>
+          <option value="snelheid">Gem. snelheid (km/u, trajecten en meetpunten)</option>
+          <option value="index">Reistijdindex</option>
+          <option value="intensiteit">Intensiteit (vtg/u, meetpunten)</option>
+        </select></label>
+      <label class="fld">Aggregatie
+        <select name="agg">
+          <option value="5">5 minuten</option>
+          <option value="15" selected>15 minuten</option>
+          <option value="60">1 uur</option>
+        </select></label>
+    </div>
+    <div class="fld-row">
+      <label class="fld">Periode
+        <select name="period">
+          <option value="6h">Laatste 6 uur</option>
+          <option value="24h" selected>Laatste 24 uur</option>
+          <option value="3d">Laatste 3 dagen</option>
+          <option value="7d">Laatste 7 dagen</option>
+          <option value="14d">Laatste 14 dagen</option>
+          <option value="abs">Vaste periode…</option>
+        </select></label>
+      <label class="fld abs">Van<input type="date" name="from"></label>
+      <label class="fld abs">Tot en met<input type="date" name="to"></label>
+    </div>
+    <fieldset class="fld"><legend>Weekdagen</legend>
+      <div class="days">
+        <label><input type="checkbox" name="wd" value="1" checked>ma</label><label><input type="checkbox" name="wd" value="2" checked>di</label><label><input type="checkbox" name="wd" value="3" checked>wo</label><label><input type="checkbox" name="wd" value="4" checked>do</label><label><input type="checkbox" name="wd" value="5" checked>vr</label><label><input type="checkbox" name="wd" value="6" checked>za</label><label><input type="checkbox" name="wd" value="0" checked>zo</label>
+      </div>
+    </fieldset>
+    <fieldset class="fld profiel-only"><legend>Vergelijken (alleen dagprofiel)</legend>
+      <label class="chk"><input type="checkbox" name="cmp"> Vergelijk met een tweede periode</label>
+      <div class="fld-row cmp-row">
+        <label class="fld">Van<input type="date" name="cfrom"></label>
+        <label class="fld">Tot en met<input type="date" name="cto"></label>
+      </div>
+    </fieldset>
+    <div class="dlg-acts">
+      <button value="cancel" class="ghost" formnovalidate>Annuleren</button>
+      <span class="spacer"></span>
+      <button value="ok" class="primary" id="chart-save">› Opslaan</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" hidden></div>
 
 <script src="vendor/leaflet/leaflet.js"></script>
 <script src="app.js"></script>
