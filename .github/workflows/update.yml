@@ -60,7 +60,12 @@ jobs:
           python fetch.py --state state --out site
           after=$(stamp)
           echo "signs_new=$([ "$before" != "$after" ] && [ "$after" != none ] && echo "$after")" >> "$GITHUB_OUTPUT"
-
+      - name: Afgeronde dagen archiveren (branch 'data')
+        if: steps.fetch.outcome == 'success'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ARCHIVE_DAYS: ${{ vars.ARCHIVE_DAYS || '365' }}
+        run: python archive.py --state state --out site
       - name: Toestand bewaren
         uses: actions/cache/save@v4
         with:
