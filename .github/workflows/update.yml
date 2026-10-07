@@ -47,10 +47,10 @@ jobs:
       - name: NDW-feeds ophalen en verwerken
         id: fetch
         env:
-          RADIUS_KM: ${{ vars.RADIUS_KM || '12' }}
+          RADIUS_KM: ${{ vars.RADIUS_KM || '35' }}
           HISTORY_DAYS: ${{ vars.HISTORY_DAYS || '14' }}
-          LOOP_RADIUS_KM: ${{ vars.LOOP_RADIUS_KM || '8' }}
-          OV_RADIUS_KM: ${{ vars.OV_RADIUS_KM || '8' }}
+          LOOP_RADIUS_KM: ${{ vars.LOOP_RADIUS_KM || '35' }}
+          OV_RADIUS_KM: ${{ vars.OV_RADIUS_KM || '35' }}
           OV_HISTORY_DAYS: ${{ vars.OV_HISTORY_DAYS || '3' }}
         run: |
           stamp() { python -c "import json;print(int(json.load(open('state/signs/meta.json'))['time']))" 2>/dev/null || echo none; }
