@@ -67,6 +67,24 @@ function prettyName(id){
 // ================================================================ data
 const bust = () => Math.floor(Date.now()/60000);
 async function getJSON(u, v){ const r = await fetch(`${u}?v=${v ?? bust()}`,{cache:"no-store"}); if(!r.ok) throw new Error(r.status+" "+u); return r.json(); }
+// archief van afgeronde dagen (branch 'data', via raw.githubusercontent.com)
+let ARCH = null, ARCH_AT = 0;
+function withArch(idx, kind){
+  const pages = idx.pagesDays || idx.days || [], a = ARCH?.[kind] || [];
+  return {...idx, pagesDays: pages, days: [...new Set([...a, ...pages])].sort()};
+}
+/** Dagbestand ophalen: van deze site, of uit het archief als de dag daar niet (meer) staat. */
+function getDayJSON(path, day, kind, v, pagesDays){
+  const inArch = !!ARCH && (ARCH[kind]||[]).includes(day);
+  const fromArch = () => getJSON(ARCH.base + path, "final");
+  if (inArch && pagesDays && !pagesDays.includes(day)) return fromArch();
+  return getJSON(`data/${path}`, v).catch(e => { if (inArch) return fromArch(); throw e; });
+}
+window.archImg = (el, h) => { el.onerror = null; if (ARCH) el.src = `${ARCH.base}drip/img/${h}.png`; };
+async function loadArchive(){
+  if (ARCH && nowS() - ARCH_AT < 3600) return;
+  try{ ARCH = await getJSON("data/archive.json"); ARCH_AT = nowS(); }catch(e){ ARCH_AT = nowS() - 3000; }
+}
 function bucketOf(id){ let h=0; for (const ch of id) h = (Math.imul(h,31) + ch.charCodeAt(0)) >>> 0; return h % (IDX.buckets||32); }
 const isToday = day => day === IDX.days[IDX.days.length-1];
 const verFor = day => isToday(day) ? STATE?.lastFetch : "final";
@@ -74,7 +92,7 @@ const verFor = day => isToday(day) ? STATE?.lastFetch : "final";
 const histCache = new Map();     // "dag/bb" -> Promise<{times, sites}>
 function loadBucket(day, b){
   const key = `${day}/${b}@${verFor(day)}`;
-  if (!histCache.has(key)) histCache.set(key, getJSON(`data/hist/${day}/${String(b).padStart(2,"0")}.json`, verFor(day)).catch(()=>({times:[],sites:{}})));
+  if (!histCache.has(key)) histCache.set(key, getDayJSON(`hist/${day}/${String(b).padStart(2,"0")}.json`, day, "hist", verFor(day), IDX.pagesDays).catch(()=>({times:[],sites:{}})));
   return histCache.get(key);
 }
 /** Reistijden (s) per segment tussen from en to: {id: [[t, s], ...]} */
@@ -95,7 +113,7 @@ async function series(ids, from, to){
 const tlCache = new Map();
 function loadTL(day){
   const key = `${day}@${verFor(day)}`;
-  if (!tlCache.has(key)) tlCache.set(key, getJSON(`data/tl/${day}.json`, verFor(day)).catch(()=>null));
+  if (!tlCache.has(key)) tlCache.set(key, getDayJSON(`tl/${day}.json`, day, "hist", verFor(day), IDX.pagesDays).catch(()=>null));
   return tlCache.get(key);
 }
 
@@ -146,6 +164,7 @@ function groupM(item){
 const project = () => PROJ.projects.find(p=>p.id===PROJ.active) || PROJ.projects[0];
 const items = () => project().items;
 const charts = () => (project().charts ||= []);
+const pins = () => (project().pins ||= []);
 const findItem = key => items().find(i=>i.key===key);
 function nextColor(){ const used=new Set(items().map(i=>i.color)); return PALETTE.find(c=>!used.has(c)) || PALETTE[items().length%PALETTE.length]; }
 function newProject(name){ return {id:uid(), name, note:"", items:[], charts:[]}; }
@@ -154,13 +173,13 @@ function b64u(str){ const bytes = new TextEncoder().encode(str); let bin=""; byt
 function unb64u(s){ const bin = atob(s.replace(/-/g,"+").replace(/_/g,"/")); return new TextDecoder().decode(Uint8Array.from(bin,c=>c.charCodeAt(0))); }
 function encodeShare(p){
   const keys = p.items.map(i=>i.key);
-  return b64u(JSON.stringify({n:p.name, o:p.note, i:p.items.map(i=>[i.label,i.color,i.on?1:0,i.ids]),
+  return b64u(JSON.stringify({n:p.name, o:p.note, i:p.items.map(i=>[i.label,i.color,i.on?1:0,i.ids,i.kind||""]), d:p.pins||[],
     c:(p.charts||[]).map(c=>({...c, id:undefined, items:c.items.map(k=>keys.indexOf(k)).filter(x=>x>=0)}))}));
 }
 function decodeShare(str){
   const j = JSON.parse(unb64u(str));
-  const its = (j.i||[]).map(x=>({key:uid(), label:x[0], color:x[1], on:!!x[2], ids:x[3]||[]}));
-  return {id:uid(), name:j.n||"Gedeeld project", note:j.o||"", items:its,
+  const its = (j.i||[]).map(x=>({key:uid(), label:x[0], color:x[1], on:!!x[2], ids:x[3]||[], ...(x[4]?{kind:x[4]}:{})}));
+  return {id:uid(), name:j.n||"Gedeeld project", note:j.o||"", items:its, pins:j.d||[],
           charts:(j.c||[]).map(c=>({...c, id:uid(), items:(c.items||[]).map(i=>its[i]?.key).filter(Boolean)}))};
 }
 function loadProjects(){
@@ -182,7 +201,7 @@ function renderProjectBar(){
 }
 function switchProject(id){
   PROJ.active = id; editing = null; saveProjects();
-  renderProjectBar(); drawMine(); renderSelected(); renderList(); refreshAt().then(()=>{ renderSelected(); }); renderCharts();
+  renderProjectBar(); drawMine(); renderSelected(); renderList(); refreshAt().then(()=>{ renderSelected(); }); renderCharts(); drawDrips();
   const b = projectBounds(); if (b) map.fitBounds(b.pad(.25));
 }
 function projectBounds(){
@@ -458,8 +477,30 @@ $("#all-off").onclick = ()=>{ items().forEach(i=>i.on=false); saveProjects(); dr
 
 // ================================================================ segmentenlijst
 function itemOf(id){ return items().find(i=>i.ids.includes(id)); }
+function loopRoad(id){
+  const m = /^(\d{3})\d(h?r[lr])/.exec(LOOPS[id]?.name||"");
+  return m ? `A${+m[1]} ${m[2].endsWith("l")?"Li":"Re"}` : "";
+}
+function renderLoopList(q, inView, b){
+  let ids = Object.keys(LOOPS);
+  if (q) ids = ids.filter(id => (loopName(id)+" "+id+" "+loopRoad(id)).toLowerCase().includes(q));
+  if (inView) ids = ids.filter(id => b.contains([LOOPS[id].lat, LOOPS[id].lon]));
+  ids.sort((a,c)=>(LOOPS[a].dist??0)-(LOOPS[c].dist??0));
+  $("#count").textContent = `${ids.length} / ${Object.keys(LOOPS).length}`;
+  if (!Object.keys(LOOPS).length){ $("#list").innerHTML = `<div class="empty" style="padding:12px 16px">De meetpunten (lusdetectie) zijn nog niet geladen.</div>`; return; }
+  $("#list").innerHTML = ids.slice(0,300).map(id=>{
+    const it = items().find(i=>isLus(i) && i.ids.includes(id)), v = TIME==null ? LOOP_NOW[id] : null, s = LOOPS[id], c = LCLS[id] ?? ".";
+    const road = loopRoad(id);
+    return `<div class="row ${it?"in":""}" data-loop="${esc(id)}" ${it?`style="--c:${it.color}"`:""}>
+      <span class="dotc" style="background:${it?it.color:flowColor(c)}"></span>
+      <div style="min-width:0"><div class="n">${esc(loopName(id))}</div>
+        <div class="sub">meetpunt${road?" · "+esc(road):""} · ${s.lanes||"?"} rijstroken${it?` · in “${esc(it.label)}”`:""}</div></div>
+      <div class="tt num">${v?.f!=null?`${v.f.toLocaleString("nl-NL")}<small>vtg/u${v.s!=null?" · "+v.s+" km/u":""}</small>`:""}</div></div>`;
+  }).join("") || `<div class="empty" style="padding:12px 16px">Geen meetpunten${inView?" in het kaartbeeld":""}. Zet “in beeld” uit of zoom uit.</div>`;
+}
 function renderList(){
   const q = $("#q").value.trim().toLowerCase(), inView = $("#inview").checked, b = map.getBounds();
+  if (ui.listKind==="lus") return renderLoopList(q, inView, b);
   let ids = Object.keys(SITES).filter(siteVisible);
   if (q) ids = ids.filter(id => (prettyName(id)+" "+SITES[id].name+" "+id).toLowerCase().includes(q));
   if (inView) ids = ids.filter(id => SITES[id].coords.some(c=>b.contains(c)));
@@ -475,14 +516,27 @@ function renderList(){
   }).join("") || `<div class="empty" style="padding:12px 16px">Geen segmenten${inView?" in het kaartbeeld":""}. Zet in Kaartlagen meer bronnen aan of zoom uit.</div>`;
 }
 $("#list").addEventListener("click", e=>{
+  const lr = e.target.closest("[data-loop]");
+  if (lr){
+    const id = lr.dataset.loop, s = LOOPS[id];
+    if (!ui.layers.loops){ $("#ly-loops").checked = true; $("#ly-loops").dispatchEvent(new Event("change")); }
+    if (!items().some(i=>isLus(i) && i.ids.includes(id))) addLoop(id);
+    map.setView([s.lat, s.lon], Math.max(map.getZoom(), 15));
+    return;
+  }
   const row = e.target.closest(".row"); if (!row) return;
   const id = row.dataset.id;
   if (editing){ toggleInItem(editing, id); return; }
   if (itemOf(id)){ map.fitBounds(L.latLngBounds(SITES[id].coords).pad(1.5)); return; }
   addAsNew(id);
 });
-$("#list").addEventListener("mouseover", e=>{ const r=e.target.closest(".row"); const l = r && flowLines[r.dataset.id]; if (l && map.hasLayer(l)) l.setStyle({weight:9}); });
-$("#list").addEventListener("mouseout", e=>{ const r=e.target.closest(".row"); if (r) styleFlowOne(r.dataset.id); });
+$("#list").addEventListener("mouseover", e=>{ const lr=e.target.closest("[data-loop]"); if (lr){ loopMarkers[lr.dataset.loop]?.setStyle({radius:9, weight:3, color:"#121212"}); return; } const r=e.target.closest(".row"); const l = r && flowLines[r.dataset.id]; if (l && map.hasLayer(l)) l.setStyle({weight:9}); });
+$("#list").addEventListener("mouseout", e=>{ const lr=e.target.closest("[data-loop]"); if (lr){ const c = LCLS[lr.dataset.loop] ?? "."; loopMarkers[lr.dataset.loop]?.setStyle({radius: c==="."||c==="-" ? 3 : 4.5, weight:1.5, color:"#fff"}); return; } const r=e.target.closest(".row"); if (r) styleFlowOne(r.dataset.id); });
+if (ui.listKind==="lus") $("#q").placeholder = "Zoek meetpunt, bv. A16, 0160hrr, richting zuid…";
+document.querySelectorAll('input[name=lk]').forEach(r=>{ r.checked = r.value===(ui.listKind||"seg"); r.onchange = ()=>{ ui.listKind = r.value; saveUI();
+  $("#q").placeholder = ui.listKind==="lus" ? "Zoek meetpunt, bv. A16, 0160hrr, richting zuid…" : "Zoek, bv. A16 Re, Stadionweg, N471…";
+  if (ui.listKind==="lus" && !ui.layers.loops){ $("#ly-loops").checked = true; $("#ly-loops").dispatchEvent(new Event("change")); toast("Laag Lusdetectie aangezet; meetpunten zie je vanaf zoomniveau 12."); }
+  renderList(); }; });
 $("#q").oninput = renderList; $("#inview").onchange = renderList;
 let moveT; map.on("moveend", ()=>{ clearTimeout(moveT); moveT=setTimeout(()=>{ if ($("#inview").checked) renderList(); refreshSigns(); },150); });
 
@@ -502,6 +556,7 @@ bindLayer("#ly-drip","drip", ()=>{ $("#drip-box").hidden = !ui.layers.drip; draw
 bindLayer("#ly-signs","signs", ()=>{ $("#signs-box").hidden = !ui.layers.signs; refreshSigns(); });
 $("#msi-box").hidden = !ui.layers.msi; $("#drip-box").hidden = !ui.layers.drip; $("#signs-box").hidden = !ui.layers.signs;
 $("#msi-active").checked = ui.msiActive; $("#msi-active").onchange = e=>{ ui.msiActive = e.target.checked; saveUI(); drawMsi(); };
+$("#drip-size").value = ui.dripSize || "m"; $("#drip-size").onchange = e=>{ ui.dripSize = e.target.value; saveUI(); drawDrips(); };
 $("#drip-active").checked = ui.dripActive; $("#drip-active").onchange = e=>{ ui.dripActive = e.target.checked; saveUI(); drawDrips(); };
 $("#layers-toggle").onclick = ()=>{ ui.layersOpen = !ui.layersOpen; saveUI(); applyLayersOpen(); };
 function applyLayersOpen(){ $("#layers-body").hidden = !ui.layersOpen; $("#layers-toggle").setAttribute("aria-expanded", ui.layersOpen); }
@@ -525,7 +580,7 @@ function decodePortal(key, code, meta){
 const dayCache = new Map();
 function loadDayChanges(kind, day){
   const key = `${kind}/${day}@${isToday(day)?bust():"f"}`;
-  if (!dayCache.has(key)) dayCache.set(key, getJSON(`data/${kind}/${day}.json`, isToday(day)?undefined:"final").catch(()=>({steps:[]})));
+  if (!dayCache.has(key)) dayCache.set(key, getDayJSON(`${kind}/${day}.json`, day, kind, isToday(day)?undefined:"final").catch(()=>({steps:[]})));
   return dayCache.get(key);
 }
 /** Stand van matrixborden/DRIP's op tijdstip T door de wijzigingen van die dag af te spelen. */
@@ -540,6 +595,10 @@ async function stateAt(kind, T){
   return {state: st, at};
 }
 function laneHtml(l){
+  const h = laneSym(l);
+  return l.d?.f ? h.replace(/<\/b>$/, '<i class="fl l"></i><i class="fl r"></i></b>') : h;
+}
+function laneSym(l){
   const d = l.d||{}, f = d.f ? " f" : "";
   switch (d.k){
     case "speedlimit": return `<b class="sp${d.r?" r":""}${f}">${esc(d.v)}</b>`;
@@ -553,7 +612,8 @@ function laneHtml(l){
 }
 const LANE_TXT = {speedlimit:"snelheid",lane_closed:"rijstrook dicht (kruis)",lane_closed_ahead:"rijstrook dicht verderop",lane_open:"rijstrook open (pijl)",restriction_end:"einde beperkingen",blank:"leeg",unknown:"onbekend"};
 function portalSummary(p){ const k = p.lanes.map(l=>l.d?.k); return k.includes("lane_closed") ? "x" : k.includes("speedlimit") ? "sp" : (k.includes("lane_open")||k.includes("lane_closed_ahead")) ? "op" : ""; }
-const portalActive = p => p.lanes.some(l=>l.d && l.d.k!=="blank" && l.d.k!=="unknown");
+const portalActive = p => p.lanes.some(l=>l.d && (l.d.f || (l.d.k!=="blank" && l.d.k!=="unknown")));
+const portalFlash = p => p.lanes.some(l=>l.d?.f);
 let msiReq = 0;
 async function drawMsi(){
   const my = ++msiReq;
@@ -579,12 +639,12 @@ async function drawMsi(){
     const rot = p.bearing!=null ? `transform:rotate(${p.bearing}deg)` : "";
     const html = detail
       ? `<div class="msi-rot" style="${rot}"><div class="msi">${p.lanes.map(laneHtml).join("")}</div><i class="msi-dir"></i></div>`
-      : `<div class="msi-rot" style="${rot}"><div class="msi-dot ${portalSummary(p)}"></div></div>`;
+      : `<div class="msi-rot" style="${rot}"><div class="msi-dot ${portalSummary(p)} ${portalFlash(p)?"fl":""}"></div></div>`;
     const w = detail ? p.lanes.length*20+4 : 12, h = detail ? 22 : 6;
     L.marker([p.lat,p.lon],{pane:"msi",icon:L.divIcon({className:"",html,iconSize:[w,h],iconAnchor:[w/2,h/2]})})
       .bindPopup(()=>`<div class="pop">${TIME!=null?`<span class="hist">${esc(timeLabel(TIME))}</span>`:""}<h4>${esc(p.road)} ${esc(p.cw)} · km ${esc(p.km)}</h4>
         <div class="msi" style="display:inline-flex;transform:scale(1.4);transform-origin:left top;margin:2px 0 14px">${p.lanes.map(laneHtml).join("")}</div>
-        <div class="kv">${p.lanes.map(l=>`<span>Rijstrook ${esc(l.n)}</span><span>${esc(LANE_TXT[l.d?.k]||l.d?.k)}${l.d?.v?" "+esc(l.d.v):""}${l.d?.r?" (verplicht)":""}${l.d?.f?" · knipperend":""}</span>`).join("")}</div>
+        <div class="kv">${p.lanes.map(l=>`<span>Rijstrook ${esc(l.n)}</span><span>${esc(LANE_TXT[l.d?.k]||l.d?.k)}${l.d?.v?" "+esc(l.d.v):""}${l.d?.r?" (verplicht)":""}${l.d?.f?" · knipperlichten aan":""}</span>`).join("")}</div>
         ${p.bearing!=null?`<div class="m" style="margin-top:6px">rijrichting ${p.bearing}°</div>`:""}</div>`)
       .addTo(msiGroup);
   }
@@ -607,38 +667,70 @@ map.on("zoomend", ()=>{
 const dripGroup = L.layerGroup().addTo(map);
 let DRIPS_LIVE = [], DRIP_META = null;
 const imgUrl = h => `data/drip/img/${h}.png`;
+const imgTag = (h, alt="") => `<img alt="${esc(alt)}" src="${imgUrl(h)}" onerror="archImg(this,'${h}')">`;
+const DRIP_W = {s:64, m:110, l:170};
+const pinGroup = L.layerGroup().addTo(map);
+map.createPane("dripPin").style.zIndex = 660;
+async function dripList(){
+  if (TIME==null) return DRIPS_LIVE;
+  DRIP_META ||= await getJSON("data/drip/meta.json");
+  const r = await stateAt("drip", TIME);
+  return Object.entries(r.state).filter(([k])=>DRIP_META[k]).map(([k,v])=>({id:k, ...DRIP_META[k], img:v.i, text:v.x, working:v.w, active:!!v.a}));
+}
+function drawPins(list){
+  pinGroup.clearLayers();
+  const ids = pins(); if (!ids.length) return;
+  const byId = Object.fromEntries(list.map(d=>[d.id,d]));
+  for (const id of ids){
+    const d = byId[id] || (DRIP_META?.[id] ? {id, ...DRIP_META[id], img:[], text:[]} : DRIPS_LIVE.find(x=>x.id===id));
+    if (!d) continue;
+    const body = d.img?.length ? d.img.map(h=>imgTag(h, `Beeld van DRIP ${d.name}`)).join("")
+      : d.text?.some(t=>t.trim()) ? `<div class="dp-t">${dripLines(d.text)}</div>` : `<div class="dp-e">toont niets</div>`;
+    const html = `<div class="drip-pin ${TIME!=null?"hist":""}" data-pin="${esc(id)}"><div class="dp-h"><span title="${esc(d.name)}">${esc(d.name)}</span><button data-unpin="${esc(id)}" title="Losmaken" aria-label="DRIP losmaken">×</button></div>${body}</div>`;
+    L.marker([d.lat,d.lon],{pane:"dripPin", icon:L.divIcon({className:"", html, iconSize:[0,0], iconAnchor:[0,0]}), keyboard:false}).addTo(pinGroup);
+  }
+}
+window.togglePin = id => {
+  const ps = pins(), i = ps.indexOf(id);
+  if (i>=0) ps.splice(i,1); else ps.push(id);
+  saveProjects(); map.closePopup(); drawDrips();
+  toast(i>=0 ? "DRIP losgemaakt." : "DRIP vastgepind. Het beeld blijft groot op de kaart staan, ook bij uitzoomen; klik × om los te maken.");
+};
+document.addEventListener("click", e => {
+  const u = e.target.closest("[data-unpin]"); if (u){ e.stopPropagation(); e.preventDefault(); togglePin(u.dataset.unpin); return; }
+  const p = e.target.closest("[data-pin]"); if (p){ const d = DRIPS_LIVE.find(x=>x.id===p.dataset.pin) || DRIP_META?.[p.dataset.pin]; if (d) map.setView([d.lat,d.lon], Math.max(map.getZoom(), 15)); }
+}, true);
 function dripLines(lines){ return lines.map(l => esc(l).replace(/%s(\d+)/g,'<span class="rt">$1</span>')).join("<br>"); }
 let dripReq = 0;
 async function drawDrips(){
   const my = ++dripReq;
-  if (!ui.layers.drip){ dripGroup.clearLayers(); return; }
-  let list = DRIPS_LIVE;
-  if (TIME!=null){
-    try{
-      DRIP_META ||= await getJSON("data/drip/meta.json");
-      const r = await stateAt("drip", TIME);
-      list = Object.entries(r.state).filter(([k])=>DRIP_META[k]).map(([k,v])=>({id:k, ...DRIP_META[k], img:v.i, text:v.x, working:v.w, active:!!v.a}));
-    }catch(e){ list = []; }
-  }
+  if (!ui.layers.drip && !pins().length){ dripGroup.clearLayers(); pinGroup.clearLayers(); return; }
+  let list;
+  try{ list = await dripList(); }catch(e){ list = []; }
   if (my!==dripReq) return;
   dripGroup.clearLayers();
+  drawPins(list);
+  if (!ui.layers.drip) return;
+  const pinned = new Set(pins()), dw = DRIP_W[ui.dripSize||"m"] || 110;
   const thumbs = map.getZoom() >= DRIP_THUMB_ZOOM;
   for (const d of list){
     if (ui.dripActive && !d.active) continue;
+    if (pinned.has(d.id)) continue;
     const off = d.working && d.working!=="working";
     let icon;
     if (d.active && thumbs && d.img?.length){
-      icon = L.divIcon({className:"",html:`<span class="drip-thumb"><img alt="" src="${imgUrl(d.img[0])}"></span>`,iconSize:[69,null],iconAnchor:[34,20]});
+      icon = L.divIcon({className:"",html:`<span class="drip-thumb" style="--dw:${dw}px">${d.img.map(h=>imgTag(h)).join("")}</span>`,iconSize:[dw+5,null],iconAnchor:[(dw+5)/2,dw/3]});
     } else {
       icon = L.divIcon({className:"",html:`<div class="drip-ic ${d.active?"on":""} ${off?"off":""}"></div>`,iconSize:d.active?[22,15]:[16,11]});
     }
     L.marker([d.lat,d.lon],{pane:"drip",title:d.name,icon,zIndexOffset:d.active?1000:0}).bindPopup(()=>{
-      const imgs = (d.img||[]).map(h=>`<img class="drip" alt="Beeld van DRIP ${esc(d.name)}" src="${imgUrl(h)}">`).join("");
+      const imgs = (d.img||[]).map(h=>`<img class="drip" alt="Beeld van DRIP ${esc(d.name)}" src="${imgUrl(h)}" onerror="archImg(this,'${h}')">`).join("");
+      const pinBtn = `<div class="acts"><button class="primary sm pin" onclick="togglePin('${esc(d.id)}')">${pins().includes(d.id)?"Losmaken":"📌 Vastpinnen op kaart"}</button></div>`;
       return `<div class="pop">${TIME!=null?`<span class="hist">${esc(timeLabel(TIME))}</span>`:""}<h4>${esc(d.name)}</h4>
         <div class="m">${d.active?"<b style='color:var(--mg-green)'>Toont een boodschap</b>":"Toont niets"}${off?" · ⚠ buiten werking":""}</div>
         ${imgs}${d.text?.some(t=>t.trim())?`<div class="lines">${dripLines(d.text)}</div>`:""}
-        <div class="m" style="font-size:11px">${esc(d.id)}</div></div>`;
-    },{maxWidth:300}).addTo(dripGroup);
+        <div class="m" style="font-size:11px">${esc(d.id)}</div>${pinBtn}</div>`;
+    },{maxWidth:440, minWidth:240}).addTo(dripGroup);
   }
   const act = list.filter(d=>d.active).length;
   $("#cnt-drip").textContent = list.length ? `${act} / ${list.length}` : "";
@@ -702,7 +794,7 @@ const lisToday = day => day === LIDX.days[LIDX.days.length-1];
 const lhistCache = new Map();
 function loadLBucket(day, b){
   const v = lisToday(day) ? STATE?.loopsTime : "final", key = `${day}/${b}@${v}`;
-  if (!lhistCache.has(key)) lhistCache.set(key, getJSON(`data/lhist/${day}/${String(b).padStart(2,"0")}.json`, v).catch(()=>({times:[],sites:{}})));
+  if (!lhistCache.has(key)) lhistCache.set(key, getDayJSON(`lhist/${day}/${String(b).padStart(2,"0")}.json`, day, "lhist", v, LIDX.pagesDays).catch(()=>({times:[],sites:{}})));
   return lhistCache.get(key);
 }
 /** Lusreeksen: {id: [[t, snelheid, intensiteit], ...]} */
@@ -719,7 +811,7 @@ async function loopSeries(ids, from, to){
   return out;
 }
 const ltlCache = new Map();
-function loadLTL(day){ const v = lisToday(day) ? STATE?.loopsTime : "final", key = `${day}@${v}`; if (!ltlCache.has(key)) ltlCache.set(key, getJSON(`data/ltl/${day}.json`, v).catch(()=>null)); return ltlCache.get(key); }
+function loadLTL(day){ const v = lisToday(day) ? STATE?.loopsTime : "final", key = `${day}@${v}`; if (!ltlCache.has(key)) ltlCache.set(key, getDayJSON(`ltl/${day}.json`, day, "lhist", v, LIDX.pagesDays).catch(()=>null)); return ltlCache.get(key); }
 async function computeLoopCls(){
   LCLS = {};
   if (TIME==null){ for (const id in LOOPS) LCLS[id] = loopClass(LOOP_NOW[id]?.s, LOOP_REF[id]); return; }
@@ -763,9 +855,10 @@ async function loadLoops(){
   try{
     if (!Object.keys(LOOPS).length || (STATE?.loopsTime && !loadLoops._meta)){ const j = await getJSON("data/loops/sites.json", STATE?.loopsTime); LOOPS = j.sites||{}; loadLoops._meta = true; }
     const n = await getJSON("data/loops/now.json", STATE?.loopsTime); LOOP_NOW = n.now||{}; LOOP_REF = n.ref||{};
-    try{ LIDX = await getJSON("data/lhist/index.json", STATE?.loopsTime); }catch(e){}
+    try{ LIDX = withArch(await getJSON("data/lhist/index.json", STATE?.loopsTime), "lhist"); }catch(e){}
   }catch(e){ LOOPS = {}; }
   $("#cnt-loops").textContent = Object.keys(LOOPS).length || "";
+  if (ui.listKind==="lus") renderList();
   if (TIME==null){ await computeLoopCls(); drawLoops(); }
 }
 
@@ -1102,7 +1195,7 @@ $("#tb-play").onclick = ()=>{
 const chartData = new Map();   // chart.id -> berekende reeksen
 function periodRange(c){
   const end = Math.ceil(nowS()/STEP)*STEP;
-  const rel = {"6h":6*3600,"24h":86400,"3d":3*86400,"7d":7*86400,"14d":14*86400}[c.period];
+  const rel = {"6h":6*3600,"24h":86400,"3d":3*86400,"7d":7*86400,"14d":14*86400,"30d":30*86400,"90d":90*86400}[c.period];
   if (rel) return [end - rel, end];
   const a = c.from ? new Date(c.from+"T00:00").getTime()/1000 : end-86400;
   const b = c.to ? new Date(c.to+"T00:00").getTime()/1000 + 86400 : end;
@@ -1120,20 +1213,22 @@ async function computeChart(c){
   const lusIts = its.filter(isLus), trIts = its.filter(i=>!isLus(i));
   const ids = [...new Set(trIts.flatMap(i=>i.ids))].filter(id=>SITES[id]);
   if (!its.length) return {series:[], empty: c.metric==="intensiteit" ? "Intensiteit is alleen beschikbaar voor meetpunten (lusdetectie). Voeg een meetpunt toe via de kaartlaag Lusdetectie." : "Kies minstens één traject of meetpunt."};
-  const wd = new Set((c.weekdays ?? [0,1,2,3,4,5,6]).map(Number));
+  const dagen = c.type==="dagen";
+  const wd = new Set((dagen ? [0,1,2,3,4,5,6] : (c.weekdays ?? [0,1,2,3,4,5,6])).map(Number));
   const agg = (+c.agg||15)*60;
-  function binIt(raw, it, dash, suffix){
+  function binIt(raw, it, dash, suffix, base){
     const bins = new Map();
     for (const [t,v] of raw){
       let k;
-      if (c.type==="profiel"){ const d = new Date(t*1000); k = Math.floor((d.getHours()*3600 + d.getMinutes()*60)/agg)*agg; }
+      if (base!=null) k = Math.floor((t-base)/agg)*agg;
+      else if (c.type==="profiel"){ const d = new Date(t*1000); k = Math.floor((d.getHours()*3600 + d.getMinutes()*60)/agg)*agg; }
       else k = Math.floor(t/agg)*agg;
       const e = bins.get(k) || [0,0]; e[0]+=v; e[1]++; bins.set(k,e);
     }
-    const pts = [...bins.entries()].sort((a,b)=>a[0]-b[0]).map(([k,[s,n]])=>[c.type==="profiel" ? k : k + agg/2, s/n]);
+    const pts = [...bins.entries()].sort((a,b)=>a[0]-b[0]).map(([k,[s,n]])=>[c.type==="profiel" || base!=null ? k : k + agg/2, s/n]);
     return {key:it.key, label:it.label + (suffix||""), color:it.color, dash, pts};
   }
-  async function build(from, to, dash, suffix){
+  async function build(from, to, dash, suffix, base){
     const lids = [...new Set(lusIts.flatMap(i=>i.ids))];
     const lser = lids.length ? await loopSeries(lids, from, to) : {};
     const lusOut = lusIts.map(it=>{
@@ -1141,7 +1236,7 @@ async function computeChart(c){
       for (const id of it.ids) for (const [t,sp,f] of lser[id]||[]){ const e = byT.get(t)||[0,0,0]; if (f!=null){ e[0]+=f; if (sp!=null){ e[1]+=sp*f; e[2]+=f; } } byT.set(t,e); }
       const raw = [...byT.entries()].filter(([t])=>wd.has(new Date(t*1000).getDay()))
         .map(([t,e])=>[t, c.metric==="intensiteit" ? e[0] : (e[2]>0 ? e[1]/e[2] : null)]).filter(p=>p[1]!=null);
-      return binIt(raw, it, dash, suffix);
+      return binIt(raw, it, dash, suffix, base);
     });
     if (!trIts.length) return lusOut;
     const segs = await series(ids, from, to);
@@ -1150,8 +1245,28 @@ async function computeChart(c){
       const len = it.ids.filter(id=>SITES[id]).reduce((a,id)=>a+(SITES[id].length||0),0);
       const raw = sumSeries(segs, it.ids).filter(([t])=>wd.has(new Date(t*1000).getDay()))
         .map(([t,s])=>[t, metricValue(c.metric, s, ref, len)]).filter(p=>p[1]!=null && isFinite(p[1]));
-      return binIt(raw, it, dash, suffix);
+      return binIt(raw, it, dash, suffix, base);
     }));
+  }
+  if (dagen){
+    const days = (c.days||[]).slice(0, 8);
+    if (!days.length) return {series:[], empty:"Kies minstens één dag."};
+    const DASH = [false, "6 4", "2 3", "10 3 2 3"];
+    let out = [];
+    for (const [di, day] of days.entries()){
+      const d0 = new Date(day+"T00:00"), d1 = new Date(d0); d1.setDate(d1.getDate()+1);
+      const a = d0.getTime()/1000, b = d1.getTime()/1000;
+      const ser = await build(a, b, false, "", a);
+      for (const sr of ser){
+        const ii = its.findIndex(i=>i.key===sr.key);
+        sr.color = PALETTE[di % PALETTE.length]; sr.dash = DASH[ii % DASH.length];
+        sr.label = (its.length>1 ? sr.label+" · " : "") + dayLabel(day);
+        sr.day = day;
+      }
+      out = out.concat(ser);
+    }
+    const withData = new Set(out.filter(s=>s.pts.length).map(s=>s.day));
+    return {series: out.filter(s=>s.pts.length), range:[0,86400], agg, missing: days.filter(d=>!withData.has(d)), empty: "Geen metingen op deze dagen. Historie is er vanaf de eerste run van het dashboard; oudere dagen komen uit het archief."};
   }
   const [a,b] = periodRange(c);
   let out = await build(a, b, false, c.cmp && c.type==="profiel" ? " (A)" : "");
@@ -1161,8 +1276,10 @@ async function computeChart(c){
   }
   return {series: out.filter(s=>s.pts.length), range:[a,b], agg};
 }
+function dayLabel(day){ return new Date(day+"T12:00").toLocaleDateString("nl-NL",{weekday:"short",day:"numeric",month:"short"}); }
 function describeChart(c){
-  const p = {"6h":"laatste 6 uur","24h":"laatste 24 uur","3d":"laatste 3 dagen","7d":"laatste 7 dagen","14d":"laatste 14 dagen"}[c.period] || `${c.from||"?"} t/m ${c.to||"?"}`;
+  if (c.type==="dagen") return `${METRICS[c.metric].label} · dagen vergelijken: ${(c.days||[]).map(dayLabel).join(", ")} · per ${c.agg} min`;
+  const p = {"6h":"laatste 6 uur","24h":"laatste 24 uur","3d":"laatste 3 dagen","7d":"laatste 7 dagen","14d":"laatste 14 dagen","30d":"laatste 30 dagen","90d":"laatste 90 dagen"}[c.period] || `${c.from||"?"} t/m ${c.to||"?"}`;
   const wdN = ["zo","ma","di","wo","do","vr","za"], wd = (c.weekdays ?? [0,1,2,3,4,5,6]);
   const wdTxt = wd.length===7 ? "alle dagen" : wd.length===5 && !wd.includes(0) && !wd.includes(6) ? "werkdagen" : wd.map(d=>wdN[d]).join(", ");
   return `${METRICS[c.metric].label} · ${c.type==="profiel"?"gemiddeld dagprofiel":"tijdlijn"} · ${p} · ${wdTxt} · per ${c.agg} min${c.cmp&&c.type==="profiel"?` · vergeleken met ${c.cfrom} t/m ${c.cto}`:""}`;
@@ -1173,7 +1290,7 @@ function renderCharts(){
   const list = charts();
   if (!list.length){
     box.innerHTML = `<div class="charts-empty"><h2>Nog geen grafieken in dit project</h2>
-      <p>Maak een tijdlijn van een of meer trajecten, of een gemiddeld dagprofiel om bijvoorbeeld de spits vóór en tijdens de werkzaamheden te vergelijken.</p>
+      <p>Maak een tijdlijn van een of meer trajecten of meetpunten, zet losse dagen naast elkaar (00–24 uur), of maak een gemiddeld dagprofiel om de spits vóór en tijdens de werkzaamheden te vergelijken.</p>
       <button class="primary" onclick="openChartDialog()">› Nieuwe grafiek</button></div>`;
     return;
   }
@@ -1196,7 +1313,7 @@ function drawChart(c){
   const r = chartData.get(c.id); if (!r) return;
   const plot = card.querySelector(".plot"), leg = card.querySelector(".legend");
   if (!r.series.length){ plot.innerHTML = `<div class="nodata">${esc(r.empty || "Nog geen metingen in deze periode. De historie groeit elke 5–10 minuten.")}</div>`; leg.innerHTML=""; return; }
-  const M = METRICS[c.metric], prof = c.type==="profiel";
+  const M = METRICS[c.metric], prof = c.type==="profiel" || c.type==="dagen";
   const W=640,H=260,P={l:52,r:14,t:18,b:28};
   const all = r.series.flatMap(s=>s.pts);
   const x0 = prof ? 0 : r.range[0], x1 = prof ? 86400 : r.range[1];
@@ -1220,14 +1337,15 @@ function drawChart(c){
   const paths = r.series.map(s=>{
     let d = "", prev = null;
     for (const [t,v] of s.pts){ d += `${prev==null || t-prev>gap ? "M" : "L"}${x(t).toFixed(1)},${y(v).toFixed(1)}`; prev = t; }
-    return `<path d="${d}" stroke="${s.color}" stroke-width="2" ${s.dash?'stroke-dasharray="6 4"':""}/>`;
+    return `<path d="${d}" stroke="${s.color}" stroke-width="2" ${s.dash?`stroke-dasharray="${s.dash===true?"6 4":s.dash}"`:""}/>`;
   }).join("");
   let marker = "";
   if (!prof && TIME!=null && TIME>=x0 && TIME<=x1) marker = `<line x1="${x(TIME)}" x2="${x(TIME)}" y1="${P.t}" y2="${H-P.b}" stroke="var(--mg-green)" stroke-width="1.5"/><text x="${x(TIME)+4}" y="${P.t+8}" style="fill:var(--mg-green)">${hhmm(new Date(TIME*1000))}</text>`;
   plot.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(c.title||"grafiek")}">${g}${paths}${marker}
     <line class="cx" y1="${P.t}" y2="${H-P.b}" stroke="var(--muted)" stroke-dasharray="3 3" visibility="hidden"/>
     <rect x="${P.l}" y="${P.t}" width="${W-P.l-P.r}" height="${H-P.t-P.b}" fill="transparent" stroke="none" style="cursor:${prof?"crosshair":"pointer"}"/></svg><div class="tip" hidden></div>`;
-  leg.innerHTML = r.series.map(s=>`<span><i class="${s.dash?"dash":""}" style="background:${s.color};--c:${s.color}"></i>${esc(s.label)}</span>`).join("") + (prof?"":`<span class="muted">· klik in de grafiek om de kaart naar dat moment te zetten</span>`);
+  leg.innerHTML = r.series.map(s=>`<span><i class="${s.dash==="2 3"?"dot":s.dash?"dash":""}" style="background:${s.color};--c:${s.color}"></i>${esc(s.label)}</span>`).join("") + (r.missing?.length ? `<span class="muted">· geen metingen op ${esc(r.missing.map(dayLabel).join(", "))}</span>` : "")
+    + (prof?"":`<span class="muted">· klik in de grafiek om de kaart naar dat moment te zetten</span>`);
   const svg = plot.querySelector("svg"), tip = plot.querySelector(".tip"), cx = svg.querySelector(".cx");
   const xs = [...new Set(all.map(p=>p[0]))].sort((a,b)=>a-b);
   const nearest = px => { const t = x0 + (px-P.l)/(W-P.l-P.r)*(x1-x0); let best = xs[0]; for (const v of xs) if (Math.abs(v-t)<Math.abs(best-t)) best=v; return best; };
@@ -1251,8 +1369,8 @@ function drawChart(c){
 function chartRows(c, r){
   const xs = [...new Set(r.series.flatMap(s=>s.pts.map(p=>p[0])))].sort((a,b)=>a-b);
   const maps = r.series.map(s=>new Map(s.pts));
-  const fmtX = t => c.type==="profiel" ? `${String(Math.floor(t/3600)).padStart(2,"0")}:${String(Math.floor(t%3600/60)).padStart(2,"0")}` : new Date(t*1000).toLocaleString("nl-NL");
-  return {head:[c.type==="profiel"?"tijd van de dag":"tijdstip", ...r.series.map(s=>`${s.label} (${METRICS[c.metric].unit})`)],
+  const fmtX = t => c.type==="profiel" || c.type==="dagen" ? `${String(Math.floor(t/3600)).padStart(2,"0")}:${String(Math.floor(t%3600/60)).padStart(2,"0")}` : new Date(t*1000).toLocaleString("nl-NL");
+  return {head:[c.type!=="tijd"?"tijd van de dag":"tijdstip", ...r.series.map(s=>`${s.label} (${METRICS[c.metric].unit})`)],
           rows: xs.map(t=>[fmtX(t), ...maps.map(m=>m.has(t) ? +m.get(t).toFixed(c.metric==="index"?3:2) : "")])};
 }
 function chartTable(c, r){
@@ -1289,13 +1407,39 @@ window.openChartDialog = (c, preset) => {
   const today = new Date().toISOString().slice(0,10), weekAgo = new Date(Date.now()-6*864e5).toISOString().slice(0,10);
   f.from.value = v.from || weekAgo; f.to.value = v.to || today;
   f.cmp.checked = !!v.cmp; f.cfrom.value = v.cfrom || ""; f.cto.value = v.cto || "";
+  dlgDays = [...(v.days || defaultDays())]; f.dayadd.value = ""; renderDlgDays();
   f.querySelectorAll('input[name=wd]').forEach(x=> x.checked = (v.weekdays ?? [0,1,2,3,4,5,6]).map(String).includes(x.value));
   $("#cf-items").innerHTML = items().map(i=>`<label class="chk"><input type="checkbox" name="it" value="${esc(i.key)}" ${v.items.includes(i.key)?"checked":""}><span class="sw" style="background:${i.color}"></span>${esc(i.label)} <span class="muted" style="font-size:12px">${isLus(i)?"· meetpunt":"· traject"}</span></label>`).join("");
   syncDlg(); $("#chart-dlg").showModal();
 };
-function syncDlg(){
+let dlgDays = [];
+const isoDay = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const daysAgo = n => { const d = new Date(); d.setDate(d.getDate()-n); return isoDay(d); };
+function defaultDays(){ return [daysAgo(0), daysAgo(1), daysAgo(7)]; }
+function renderDlgDays(){
+  dlgDays = [...new Set(dlgDays)].sort().slice(-8);
+  $("#cf-days").innerHTML = dlgDays.length ? dlgDays.map((d,i)=>`<span class="chip"><i style="background:${PALETTE[i%PALETTE.length]}"></i>${esc(dayLabel(d))}<button type="button" data-rmday="${d}" aria-label="Verwijder ${esc(dayLabel(d))}">×</button></span>`).join("") : `<span class="empty">Nog geen dagen gekozen.</span>`;
+}
+$("#chart-form").addEventListener("click", e=>{
+  const rm = e.target.closest("[data-rmday]"); if (rm){ dlgDays = dlgDays.filter(d=>d!==rm.dataset.rmday); renderDlgDays(); return; }
+  const b = e.target.closest("[data-day]"); if (!b) return;
   const f = $("#chart-form");
-  f.querySelectorAll(".abs").forEach(el=>el.hidden = f.period.value!=="abs");
+  if (b.dataset.day==="pick"){ if (!f.dayadd.value){ toast("Kies eerst een datum.", true); return; } dlgDays.push(f.dayadd.value); }
+  else {
+    const n = +b.dataset.day;
+    if (n>=7 && dlgDays.length){   // zelfde weekdag als de laatst gekozen dag
+      const last = new Date(dlgDays[dlgDays.length-1]+"T12:00"); last.setDate(last.getDate()-n); dlgDays.push(isoDay(last));
+    } else dlgDays.push(daysAgo(n));
+  }
+  if (dlgDays.length > 8) toast("Maximaal 8 dagen; de oudste valt weg.");
+  renderDlgDays();
+});
+function syncDlg(){
+  const f = $("#chart-form"), dagen = f.type.value==="dagen";
+  f.querySelector(".dagen-only").hidden = !dagen;
+  f.querySelector(".period-row").hidden = dagen;
+  f.querySelector(".wd-row").hidden = dagen;
+  f.querySelectorAll(".abs").forEach(el=>el.hidden = dagen || f.period.value!=="abs");
   f.querySelector(".profiel-only").hidden = f.type.value!=="profiel";
   f.querySelector(".cmp-row").hidden = !f.cmp.checked;
 }
@@ -1306,7 +1450,8 @@ $("#chart-dlg").addEventListener("close", ()=>{
   const f = $("#chart-form");
   const v = {id: dlgChart?.id || uid(), title: f.title.value.trim(), type: f.type.value, metric: f.metric.value, agg: +f.agg.value, period: f.period.value,
     from: f.from.value, to: f.to.value, weekdays: [...f.querySelectorAll('input[name=wd]:checked')].map(x=>+x.value),
-    items: [...f.querySelectorAll('input[name=it]:checked')].map(x=>x.value), cmp: f.cmp.checked, cfrom: f.cfrom.value, cto: f.cto.value};
+    items: [...f.querySelectorAll('input[name=it]:checked')].map(x=>x.value), cmp: f.cmp.checked, cfrom: f.cfrom.value, cto: f.cto.value,
+    days: [...dlgDays]};
   if (!v.items.length){ toast("Kies minstens één traject.", true); return; }
   if (!v.title) v.title = v.items.map(k=>findItem(k)?.label).filter(Boolean).slice(0,2).join(" & ");
   if (dlgChart) Object.assign(dlgChart, v); else charts().push(v);
@@ -1316,6 +1461,7 @@ $("#chart-save").addEventListener("click", e=>{
   const f = $("#chart-form");
   if (f.period.value==="abs" && (!f.from.value || !f.to.value)){ e.preventDefault(); toast("Vul een begin- en einddatum in.", true); }
   if (f.type.value==="profiel" && f.cmp.checked && (!f.cfrom.value || !f.cto.value)){ e.preventDefault(); toast("Vul de vergelijkingsperiode in.", true); }
+  if (f.type.value==="dagen" && !dlgDays.length){ e.preventDefault(); toast("Kies minstens één dag.", true); }
 });
 
 // ================================================================ tabbladen
@@ -1333,7 +1479,9 @@ let seen = {fetch:null, msi:null, drip:null}, sitesLoaded = false;
 async function poll(){
   try{
     STATE = await getJSON("data/state.json");
-    try{ IDX = await getJSON("data/hist/index.json", STATE.lastFetch); }catch(e){}
+    await loadArchive();
+    try{ IDX = withArch(await getJSON("data/hist/index.json", STATE.lastFetch), "hist"); }catch(e){}
+    if (ARCH) LIDX = withArch(LIDX, "lhist");
     if (!sitesLoaded && STATE.siteCount>0){
       const j = await getJSON("data/sites.json", STATE.lastFetch); SITES = j.sites||{}; sitesLoaded = true;
       buildFlow(); renderGroups(); drawMine();
@@ -1366,6 +1514,7 @@ function showStatus(err){
   $("#src-tt").textContent = f(STATE.lastFetch); $("#src-msi").textContent = f(STATE.msiTime); $("#src-drip").textContent = f(STATE.dripTime);
   $("#src-signs").textContent = STATE.signsTime ? new Date(STATE.signsTime*1000).toLocaleDateString("nl-NL") : "–";
   $("#info-days").textContent = STATE.historyDays || 14;
+  $("#info-arch").textContent = ARCH ? `Afgeronde dagen worden daarnaast bewaard in het archief (branch “data” van de repository${ARCH.keepDays>0?`, ${ARCH.keepDays} dagen`:", onbeperkt"}); daar staan nu ${ARCH.hist.length} dagen reistijden en ${ARCH.lhist.length} dagen lusdata.` : "";
   $("#src-loops").textContent = f(STATE.loopsTime); $("#src-sit").textContent = f(STATE.sitTime); $("#src-plan").textContent = f(STATE.planningTime); $("#src-ov").textContent = f(STATE.ovTime);
 }
 

@@ -11,7 +11,7 @@ website (GitHub Pages).
    (bijv. `brienenoord-verkeer`), zet hem op **Public** en klik *Create repository*.
    *(Private kan ook, maar GitHub Pages werkt daar alleen met een betaald abonnement.)*
 2. **Bestanden uploaden.** Klik op de lege repository op *uploading an existing file*.
-   Sleep **de inhoud** van de uitgepakte map erin (dus `fetch.py`, `ndw.py`, `ov.py`,
+   Sleep **de inhoud** van de uitgepakte map erin (dus `fetch.py`, `ndw.py`, `ov.py`, `archive.py`,
    `README.md`, de map `web` en de map `.github`) en klik *Commit changes*.
    > Op een Mac is de map `.github` verborgen. Druk in Finder op
    > **Cmd + Shift + .** om hem te tonen, zodat je hem mee kunt slepen.
@@ -39,6 +39,14 @@ Daarna loopt alles vanzelf.
   `RADIUS_KM` (straal voor reistijden, standaard `12`), `LOOP_RADIUS_KM`
   (lusdetectie, `8`), `OV_RADIUS_KM` (OV-laag, `8`) en `OV_HISTORY_DAYS`
   (bewaartermijn OV-voertuigposities, `3`).
+- **Archief.** Afgeronde dagen (reistijden, lusdata, matrixborden, DRIP's en
+  situaties) worden elke dag ook opgeslagen in de branch `data` van deze
+  repository, zodat de historie niet verloren gaat als GitHub de werkcache
+  opruimt. Het dashboard haalt oude dagen daar vanzelf vandaan; in de tijdbalk en
+  de grafieken kun je dus verder terug dan `HISTORY_DAYS`. Bewaartermijn: Variable
+  `ARCHIVE_DAYS` (standaard `365`, `0` = onbeperkt). Reken bij een straal van
+  35 km op ruwweg 1,5–2 GB per jaar. De branch bestaat steeds uit één commit,
+  zodat oude versies geen extra ruimte innemen. Niet handmatig in die branch werken.
 - **Projecten** worden in je eigen browser bewaard. Via het menu ⋮ kun je een
   project **delen via een link** (de ontvanger krijgt een eigen kopie), of
   exporteren/importeren als bestand.
@@ -62,7 +70,7 @@ Daarna loopt alles vanzelf.
 | OV-voertuigen en storingen | OpenOV GTFS-realtime `vehiclePositions.pb` + `alerts.pb` | elke run |
 
 Bestanden: `fetch.py` (bouwt de data), `ndw.py` (leest de NDW-formaten),
-`ov.py` (leest GTFS en GTFS-realtime), `web/` (het dashboard),
+`ov.py` (leest GTFS en GTFS-realtime), `archive.py` (archief in de branch `data`), `web/` (het dashboard),
 `.github/workflows/update.yml` (de planning).
 
 ## Bronvermelding en gebruik

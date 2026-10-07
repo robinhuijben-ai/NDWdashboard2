@@ -22,6 +22,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -552,8 +553,12 @@ class Builder:
                 traceback.print_exc()
                 self.errors[name] = f"{type(e).__name__}: {e}"
         prev = load(os.path.join(self.data, "state.json"), {})
+        since_f = os.path.join(self.a.state, "since.json")      # sinds wanneer de cache doorloopt
+        since = load(since_f, {}).get("t") or self.now
+        dump(since_f, {"t": since})
         dump(os.path.join(self.data, "state.json"), {
             "generated": self.now,
+            "stateSince": since,
             "publicationTime": self.pub or prev.get("publicationTime"),
             "lastFetch": self.times.get("traveltime", prev.get("lastFetch")),
             "msiTime": self.times.get("msi", prev.get("msiTime")),
@@ -581,20 +586,26 @@ class Builder:
         return 1 if not os.path.exists(os.path.join(out, "sites.json")) else 0
 
 
+def envnum(name, default):
+    """Getal uit een omgevingsvariabele; tolerant voor '35 km' of 'RADIUS_KM = 35'."""
+    m = re.findall(r"\d+(?:[.,]\d+)?", os.environ.get(name) or "")
+    return float(m[-1].replace(",", ".")) if m else float(default)
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--state", default="state")
     p.add_argument("--out", default="site")
-    p.add_argument("--radius", type=float, default=float(os.environ.get("RADIUS_KM", 35)))
+    p.add_argument("--radius", type=float, default=envnum("RADIUS_KM", 35))
     p.add_argument("--center", type=float, nargs=2)
-    p.add_argument("--history-days", type=float, default=float(os.environ.get("HISTORY_DAYS", 14)))
+    p.add_argument("--history-days", type=float, default=envnum("HISTORY_DAYS", 14))
     p.add_argument("--mst-hours", type=float, default=24)
     p.add_argument("--signs-days", type=float, default=7)
     p.add_argument("--no-signs", action="store_true")
     p.add_argument("--no-ov", action="store_true")
-    p.add_argument("--loop-radius", type=float, default=float(os.environ.get("LOOP_RADIUS_KM", 35)))
-    p.add_argument("--ov-radius", type=float, default=float(os.environ.get("OV_RADIUS_KM", 35)))
-    p.add_argument("--ov-history-days", type=float, default=float(os.environ.get("OV_HISTORY_DAYS", 3)))
+    p.add_argument("--loop-radius", type=float, default=envnum("LOOP_RADIUS_KM", 15))
+    p.add_argument("--ov-radius", type=float, default=envnum("OV_RADIUS_KM", 15))
+    p.add_argument("--ov-history-days", type=float, default=envnum("OV_HISTORY_DAYS", 3))
     p.add_argument("--planning-hours", type=float, default=1)
     a = p.parse_args()
     os.makedirs(a.state, exist_ok=True)

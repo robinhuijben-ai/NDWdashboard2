@@ -60,7 +60,11 @@
     <div id="selected"></div>
     <button id="new-group" class="dashed">+ Traject samenstellen uit segmenten</button>
 
-    <div class="sec-h"><h2>Segmenten</h2><span class="spacer"></span><span id="count" class="num muted"></span></div>
+    <div class="sec-h"><h2>Zoeken</h2><span class="spacer"></span><span id="count" class="num muted"></span></div>
+    <div class="seg list-kind" role="radiogroup" aria-label="Wat zoeken">
+      <label><input type="radio" name="lk" value="seg" checked> Reistijdsegmenten</label>
+      <label><input type="radio" name="lk" value="lus"> Meetpunten (intensiteit)</label>
+    </div>
     <div class="search">
       <input id="q" type="search" placeholder="Zoek, bv. A16 Re, Stadionweg, N471…">
       <label class="chk sm"><input id="inview" type="checkbox" checked> in beeld</label>
@@ -111,12 +115,18 @@
         <label class="chk"><input type="checkbox" id="ly-msi"> Matrixborden (MSI) <span class="cnt num" id="cnt-msi"></span></label>
         <div class="sub" id="msi-box" hidden>
           <label class="chk sm"><input type="checkbox" id="msi-active" checked> alleen portalen met beeldstand</label>
-          <div class="hint">Portalen staan in de rijrichting, zoals de weggebruiker ze ziet; het pijltje wijst de rijrichting op.</div>
+          <div class="hint">Portalen staan in de rijrichting, zoals de weggebruiker ze ziet; het pijltje wijst de rijrichting op. <span class="fl-key"></span> knipperlichten aan.</div>
         </div>
         <label class="chk"><input type="checkbox" id="ly-drip"> DRIP's <span class="cnt num" id="cnt-drip"></span></label>
         <div class="sub" id="drip-box" hidden>
           <label class="chk sm"><input type="checkbox" id="drip-active"> alleen DRIP's met een boodschap</label>
-          <div class="hint"><span class="drip-key on"></span> toont iets · <span class="drip-key"></span> leeg — vanaf dichtbij zie je het beeld zelf</div>
+          <label class="fld sm">Beelden op de kaart
+            <select id="drip-size">
+              <option value="s">klein</option>
+              <option value="m">middel</option>
+              <option value="l">groot</option>
+            </select></label>
+          <div class="hint"><span class="drip-key on"></span> toont iets · <span class="drip-key"></span> leeg — vanaf dichtbij zie je het beeld zelf. Klik op een DRIP en kies <b>Vastpinnen</b> om het beeld altijd groot op de kaart te houden, ook als deze laag uit staat.</div>
         </div>
         <label class="chk"><input type="checkbox" id="ly-signs"> Verkeersborden <span class="cnt num" id="cnt-signs"></span></label>
         <div class="sub" id="signs-box" hidden>
@@ -197,7 +207,7 @@
 <section class="view" data-view="info" hidden>
   <div class="prose">
     <h1>Over dit dashboard</h1>
-    <p>Alle gegevens komen uit de open data van NDW. Een GitHub-workflow haalt ze ongeveer elke 5 minuten op (GitHub start soms wat later) en publiceert ze bij dit dashboard. Historie wordt <span id="info-days">14</span> dagen bewaard.</p>
+    <p>Alle gegevens komen uit de open data van NDW. Een GitHub-workflow haalt ze ongeveer elke 5 minuten op (GitHub start soms wat later) en publiceert ze bij dit dashboard. Op deze site staat de historie van de laatste <span id="info-days">14</span> dagen. <span id="info-arch"></span></p>
     <table class="src">
       <tr><th>Reistijden</th><td>traveltime.xml.gz · ligging uit measurement_current.xml.gz · weggeometrie uit ndw_avg_meetlocaties_shapefile.zip</td><td id="src-tt">–</td></tr>
       <tr><th>Matrixborden</th><td>Matrixsignaalinformatie.xml.gz + ndw_msi_shapefiles_latest.zip</td><td id="src-msi">–</td></tr>
@@ -225,12 +235,13 @@
   <form method="dialog" id="chart-form">
     <h2 id="chart-dlg-t">Nieuwe grafiek</h2>
     <label class="fld">Titel<input name="title" placeholder="bv. A16 richting Breda – spits"></label>
-    <fieldset class="fld"><legend>Trajecten</legend><div id="cf-items" class="cf-items"></div></fieldset>
+    <fieldset class="fld"><legend>Trajecten en meetpunten</legend><div id="cf-items" class="cf-items"></div></fieldset>
     <div class="fld-row">
       <label class="fld">Weergave
         <select name="type">
           <option value="tijd">Tijdlijn</option>
           <option value="profiel">Gemiddeld dagprofiel</option>
+          <option value="dagen">Dagen vergelijken (00–24 uur)</option>
         </select></label>
       <label class="fld">Waarde
         <select name="metric">
@@ -247,7 +258,18 @@
           <option value="60">1 uur</option>
         </select></label>
     </div>
-    <div class="fld-row">
+    <fieldset class="fld dagen-only"><legend>Dagen (elke dag een eigen lijn, max. 8)</legend>
+      <div class="chips" id="cf-days"></div>
+      <div class="day-add">
+        <input type="date" name="dayadd" aria-label="Dag toevoegen">
+        <button type="button" class="ghost sm" data-day="pick">+ Toevoegen</button>
+        <button type="button" class="ghost sm" data-day="0">+ vandaag</button>
+        <button type="button" class="ghost sm" data-day="1">+ gisteren</button>
+        <button type="button" class="ghost sm" data-day="7">+ zelfde dag vorige week</button>
+        <button type="button" class="ghost sm" data-day="14">+ 2 weken terug</button>
+      </div>
+    </fieldset>
+    <div class="fld-row period-row">
       <label class="fld">Periode
         <select name="period">
           <option value="6h">Laatste 6 uur</option>
@@ -255,12 +277,14 @@
           <option value="3d">Laatste 3 dagen</option>
           <option value="7d">Laatste 7 dagen</option>
           <option value="14d">Laatste 14 dagen</option>
+          <option value="30d">Laatste 30 dagen</option>
+          <option value="90d">Laatste 90 dagen</option>
           <option value="abs">Vaste periode…</option>
         </select></label>
       <label class="fld abs">Van<input type="date" name="from"></label>
       <label class="fld abs">Tot en met<input type="date" name="to"></label>
     </div>
-    <fieldset class="fld"><legend>Weekdagen</legend>
+    <fieldset class="fld wd-row"><legend>Weekdagen</legend>
       <div class="days">
         <label><input type="checkbox" name="wd" value="1" checked>ma</label><label><input type="checkbox" name="wd" value="2" checked>di</label><label><input type="checkbox" name="wd" value="3" checked>wo</label><label><input type="checkbox" name="wd" value="4" checked>do</label><label><input type="checkbox" name="wd" value="5" checked>vr</label><label><input type="checkbox" name="wd" value="6" checked>za</label><label><input type="checkbox" name="wd" value="0" checked>zo</label>
       </div>
