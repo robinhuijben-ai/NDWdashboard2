@@ -243,7 +243,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--state", default="state")
     p.add_argument("--out", default="site")
-    p.add_argument("--radius", type=float, default=float(os.environ.get("RADIUS_KM", 12)))
+    p.add_argument("--radius", type=float, default=float(os.environ.get("RADIUS_KM", 35)))
     p.add_argument("--center", type=float, nargs=2)
     p.add_argument("--history-days", type=float, default=float(os.environ.get("HISTORY_DAYS", 14)))
     p.add_argument("--mst-hours", type=float, default=24)
