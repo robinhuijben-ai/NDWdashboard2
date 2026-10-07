@@ -8,7 +8,8 @@ on:
     branches: [main]
 
 permissions:
-  contents: write              # alleen voor de 'actief houden'-commit
+  contents: write              # 'actief houden'-commit en archief (branch 'data')
+  actions: write               # oude caches opruimen
   pages: write
   id-token: write
 
@@ -30,10 +31,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      # LET OP: 'path' moet exact gelijk zijn aan die bij "Toestand bewaren",
+      # anders vindt GitHub de cache niet terug (de paden tellen mee in de sleutel).
       - name: Vorige toestand ophalen (historie, meetlocaties)
         uses: actions/cache/restore@v4
         with:
-          path: state
+          path: |
+            state
+            !state/signs
           key: ndw-state-${{ github.run_id }}
           restore-keys: ndw-state-
 
@@ -60,12 +65,14 @@ jobs:
           python fetch.py --state state --out site
           after=$(stamp)
           echo "signs_new=$([ "$before" != "$after" ] && [ "$after" != none ] && echo "$after")" >> "$GITHUB_OUTPUT"
+
       - name: Afgeronde dagen archiveren (branch 'data')
         if: steps.fetch.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ARCHIVE_DAYS: ${{ vars.ARCHIVE_DAYS || '365' }}
         run: python archive.py --state state --out site
+
       - name: Toestand bewaren
         uses: actions/cache/save@v4
         with:
@@ -73,6 +80,15 @@ jobs:
             state
             !state/signs
           key: ndw-state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Oude caches opruimen (alleen de nieuwste 3 bewaren)
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh cache list -R "${{ github.repository }}" --key ndw-state- --sort created_at --order desc --limit 100 --json id --jq '.[3:][].id' \
+            | xargs -r -n1 gh cache delete -R "${{ github.repository }}" || true
 
       - name: Vernieuwde verkeersborden bewaren
         if: steps.fetch.outputs.signs_new != ''
